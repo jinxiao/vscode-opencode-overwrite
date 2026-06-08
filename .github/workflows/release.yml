@@ -32,14 +32,19 @@ jobs:
       - name: Package VSIX
         run: npm run package -- --out "${VSIX_NAME}"
         env:
-          VSIX_NAME: opencode-copilot-replacement-${{ github.ref_name }}.vsix
+          VSIX_NAME: opencode-agent-${{ github.ref_name }}.vsix
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VSIX_NAME: opencode-copilot-replacement-${{ github.ref_name }}.vsix
+          VSIX_NAME: opencode-agent-${{ github.ref_name }}.vsix
         run: |
+          PRERELEASE_FLAG=""
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
           gh release create "${GITHUB_REF_NAME}" "${VSIX_NAME}" \
             --verify-tag \
-            --title "opencode-copilot-replacement ${GITHUB_REF_NAME}" \
-            --notes "VS Code VSIX package for ${GITHUB_REF_NAME}."
+            --title "opencode-agent ${GITHUB_REF_NAME}" \
+            --notes "VS Code VSIX package for ${GITHUB_REF_NAME}." \
+            ${PRERELEASE_FLAG}
