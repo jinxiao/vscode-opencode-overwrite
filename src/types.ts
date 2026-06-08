@@ -1,49 +1,28 @@
-export interface OpenCodeHealth {
-  healthy: boolean;
-  version: string;
-}
+export type AgentMode = "chat" | "agent";
 
-export interface OpenCodeProject {
-  id: string;
-  worktree: string;
-  vcsDir?: string;
-  vcs?: string;
-  time?: {
-    created: number;
-    initialized?: number;
-  };
+export interface OpenCodeHealth {
+  version?: string;
+  time?: number;
 }
 
 export interface OpenCodeSession {
   id: string;
-  projectID: string;
+  title?: string;
   directory: string;
-  parentID?: string;
-  title: string;
-  version?: string;
   time: {
-    created: number;
+    created?: number;
     updated: number;
-    compacting?: number;
-  };
-  summary?: {
-    additions?: number;
-    deletions?: number;
-    files?: number;
-    diffs?: unknown[];
   };
 }
 
 export interface OpenCodeMessage {
+  id?: string;
   info: {
-    id: string;
-    sessionID: string;
-    role: "user" | "assistant";
+    role: string;
+    sessionID?: string;
     time?: {
-      created: number;
-      completed?: number;
+      created?: number;
     };
-    error?: unknown;
   };
   parts: OpenCodePart[];
 }
@@ -52,29 +31,90 @@ export type OpenCodePart =
   | {
       type: "text";
       text: string;
-      id?: string;
-      synthetic?: boolean;
-      ignored?: boolean;
     }
   | {
       type: string;
       [key: string]: unknown;
     };
 
-export interface SessionSummary {
+export interface OpenCodeAgent {
   id: string;
-  title: string;
-  updated: number;
-  excerpt: string;
+  name: string;
+  description?: string;
 }
 
-export interface CompletionContext {
-  languageId: string;
-  filePath: string;
-  workspacePath: string;
-  line: number;
-  character: number;
-  before: string;
-  after: string;
-  sessionSummaries: SessionSummary[];
+export interface OpenCodeCommand {
+  id: string;
+  name: string;
+  description?: string;
+  agent?: string;
 }
+
+export interface ContextAttachment {
+  id: string;
+  label: string;
+  path: string;
+  range?: {
+    startLine: number;
+    startCharacter: number;
+    endLine: number;
+    endCharacter: number;
+  };
+  languageId?: string;
+  text: string;
+  truncated: boolean;
+  createdAt: number;
+}
+
+export interface ChatMessageView {
+  id: string;
+  role: string;
+  text: string;
+  createdAt?: number;
+}
+
+export interface AgentViewState {
+  connected: boolean;
+  serverUrl: string;
+  status: string;
+  workspacePath?: string;
+  mode: AgentMode;
+  sessions: SessionView[];
+  activeSessionId?: string;
+  messages: ChatMessageView[];
+  models: ModelView[];
+  selectedModelId?: string;
+  agents: OpenCodeAgent[];
+  commands: OpenCodeCommand[];
+  context: ContextAttachment[];
+}
+
+export interface SessionView {
+  id: string;
+  title: string;
+  directory: string;
+  updated: number;
+}
+
+export interface ModelView {
+  id: string;
+  name: string;
+  providerID: string;
+  providerName?: string;
+}
+
+export type WebviewToExtensionMessage =
+  | { type: "initialize" }
+  | { type: "refresh" }
+  | { type: "sendMessage"; text: string }
+  | { type: "selectSession"; sessionId: string }
+  | { type: "createSession" }
+  | { type: "selectModel"; modelId: string }
+  | { type: "setMode"; mode: AgentMode }
+  | { type: "runCommand"; command: string; argumentsText?: string }
+  | { type: "clearContext" };
+
+export type ExtensionToWebviewMessage =
+  | { type: "state"; state: AgentViewState }
+  | { type: "busy"; value: boolean; message?: string }
+  | { type: "error"; message: string };

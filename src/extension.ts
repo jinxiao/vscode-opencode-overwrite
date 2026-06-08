@@ -1,103 +1,82 @@
 import * as vscode from "vscode";
-import { createOpenCodeChatParticipant } from "./chatParticipant";
-import { activeWorkspacePath } from "./chatText";
-import { OpenCodeInlineCompletionProvider } from "./completionProvider";
-import { OpenCodeLanguageModelProvider } from "./languageModelProvider";
+import { ContextStore } from "./contextStore";
 import { OpenCodeClient } from "./opencodeClient";
-import { FALLBACK_OPENCODE_MODEL, OPENCODE_MODEL_VENDOR } from "./openCodeModels";
-import { SessionIndex } from "./sessionIndex";
-import { SettingsManager } from "./settings";
+import { SessionManager } from "./sessionManager";
+import { OpenCodeAgentViewProvider } from "./webviewProvider";
+import { activeWorkspacePath } from "./workspace";
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("OpenCode");
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  const settings = new SettingsManager(context, output);
   const client = new OpenCodeClient(output);
-  const sessions = new SessionIndex(client, output);
-  const provider = new OpenCodeInlineCompletionProvider(client, sessions, output);
-  const languageModelProvider = new OpenCodeLanguageModelProvider(client, output);
-  const chatParticipant = createOpenCodeChatParticipant(client, output);
+  const sessions = new SessionManager(context, client);
+  const contextStore = new ContextStore(context);
+  const viewProvider = new OpenCodeAgentViewProvider(
+    context,
+    client,
+    sessions,
+    contextStore,
+    output
+  );
 
-  status.command = "opencode.showStatus";
+  status.command = "opencode.openAgent";
   status.text = "$(sparkle) OpenCode";
-  status.tooltip = "OpenCode inline completions and chat";
+  status.tooltip = "Open OpenCode Agent";
   status.show();
 
   context.subscriptions.push(
     output,
     status,
     client,
-    languageModelProvider,
-    vscode.languages.registerInlineCompletionItemProvider(
-      [{ scheme: "file" }],
-      provider
+    vscode.window.registerWebviewViewProvider(
+      OpenCodeAgentViewProvider.viewType,
+      viewProvider,
+      { webviewOptions: { retainContextWhenHidden: true } }
     ),
-    vscode.lm.registerLanguageModelChatProvider(
-      OPENCODE_MODEL_VENDOR,
-      languageModelProvider
-    ),
-    chatParticipant,
-    vscode.commands.registerCommand("opencode.replaceCopilotNow", async () => {
-      await settings.replaceCopilotCompletions();
-      await preferOpenCodeChatModel(languageModelProvider, settings);
-      vscode.window.showInformationMessage(
-        "OpenCode is now handling inline completions and is preferred for VS Code Chat."
-      );
+    vscode.commands.registerCommand("opencode.openAgent", async () => {
+      await viewProvider.reveal();
     }),
-    vscode.commands.registerCommand("opencode.useDefaultChatModel", async () => {
-      const model = await preferOpenCodeChatModel(languageModelProvider, settings);
-      vscode.window.showInformationMessage(
-        `OpenCode Chat default model set to ${model.name}.`
-      );
+    vscode.commands.registerCommand("opencode.newSession", async () => {
+      await viewProvider.createSession();
     }),
-    vscode.commands.registerCommand("opencode.restoreCopilotSettings", async () => {
-      await settings.restoreCopilotSettings();
+    vscode.commands.registerCommand("opencode.selectSession", async () => {
+      await viewProvider.selectSession();
     }),
-    vscode.commands.registerCommand("opencode.refreshSessions", async () => {
-      const workspacePath = activeWorkspacePath();
-      if (!workspacePath) {
-        vscode.window.showWarningMessage("OpenCode needs an open workspace to refresh sessions.");
-        return;
+    vscode.commands.registerCommand(
+      "opencode.addContext",
+      async (uri?: vscode.Uri, uris?: vscode.Uri[]) => {
+        await viewProvider.addContextFromCommand(uri, uris);
       }
-
-      await withStatus(status, "$(sync~spin) OpenCode sessions", async () => {
-        await client.ensureReady(workspacePath);
-        await sessions.refresh(workspacePath);
-      });
-      vscode.window.showInformationMessage("OpenCode session index refreshed.");
+    ),
+    vscode.commands.registerCommand("opencode.clearContext", async () => {
+      await viewProvider.clearContext();
+    }),
+    vscode.commands.registerCommand("opencode.runSlashCommand", async () => {
+      await viewProvider.runSlashCommandFromCommand();
     }),
     vscode.commands.registerCommand("opencode.showStatus", async () => {
       await showStatus(client, status);
-    }),
-    vscode.commands.registerCommand("opencode.openChat", async () => {
-      await preferOpenCodeChatModel(languageModelProvider, settings);
-      await vscode.commands.executeCommand("workbench.action.chat.open");
     })
   );
 
-  if (settings.isEnabled() && settings.shouldDisableCopilotOnActivation()) {
-    await settings.replaceCopilotCompletions();
-  }
-
   const workspacePath = activeWorkspacePath();
-  if (settings.isEnabled() && workspacePath) {
-    void withStatus(status, "$(sync~spin) OpenCode", async () => {
-      await client.ensureReady(workspacePath);
-      await sessions.refresh(workspacePath);
-      const models = await languageModelProvider.refreshModels(workspacePath);
-      if (settings.shouldDisableCopilotOnActivation()) {
-        await settings.preferOpenCodeChatModels(preferredModel(models).id);
-      }
-    }).catch((error) => {
-      status.text = "$(warning) OpenCode";
-      status.tooltip = `OpenCode connection failed: ${String(error)}`;
-      output.appendLine(`OpenCode activation failed: ${String(error)}`);
-    });
+  if (workspacePath) {
+    void client
+      .ensureReady(workspacePath)
+      .then(() => {
+        status.text = "$(check) OpenCode";
+        status.tooltip = `OpenCode connected at ${client.url}`;
+      })
+      .catch((error) => {
+        status.text = "$(warning) OpenCode";
+        status.tooltip = `OpenCode unavailable: ${String(error)}`;
+        output.appendLine(`OpenCode activation check failed: ${String(error)}`);
+      });
   }
 }
 
 export function deactivate(): void {
-  // Disposables registered in activate handle shutdown.
+  // Registered disposables handle cleanup.
 }
 
 async function showStatus(
@@ -111,65 +90,13 @@ async function showStatus(
     }
     const health = await client.health();
     status.text = "$(check) OpenCode";
-    status.tooltip = `OpenCode server healthy (${health.version ?? "unknown version"})`;
+    status.tooltip = `OpenCode connected at ${client.url}`;
     vscode.window.showInformationMessage(
-      `OpenCode server is healthy (${health.version ?? "unknown version"}).`
+      `OpenCode is connected (${health.version ?? "unknown version"}).`
     );
   } catch (error) {
     status.text = "$(warning) OpenCode";
-    status.tooltip = `OpenCode server is not reachable: ${String(error)}`;
-    vscode.window.showWarningMessage(
-      `OpenCode server is not reachable at ${client.url}: ${String(error)}`
-    );
-  }
-}
-
-async function preferOpenCodeChatModel(
-  languageModelProvider: OpenCodeLanguageModelProvider,
-  settings: SettingsManager
-): Promise<vscode.LanguageModelChatInformation> {
-  const models = await languageModelProvider.refreshModels(activeWorkspacePath());
-  const model = preferredModel(models);
-  await settings.preferOpenCodeChatModels(model.id);
-  return model;
-}
-
-function preferredModel(
-  models: readonly vscode.LanguageModelChatInformation[]
-): vscode.LanguageModelChatInformation {
-  return (
-    models.find((model) => model.id !== FALLBACK_OPENCODE_MODEL.id) ??
-    models[0] ?? {
-      id: FALLBACK_OPENCODE_MODEL.id,
-      name: FALLBACK_OPENCODE_MODEL.name,
-      family: FALLBACK_OPENCODE_MODEL.providerID,
-      version: "1",
-      maxInputTokens: FALLBACK_OPENCODE_MODEL.maxInputTokens,
-      maxOutputTokens: FALLBACK_OPENCODE_MODEL.maxOutputTokens,
-      capabilities: {
-        toolCalling: FALLBACK_OPENCODE_MODEL.supportsTools
-      }
-    }
-  );
-}
-
-async function withStatus<T>(
-  status: vscode.StatusBarItem,
-  text: string,
-  fn: () => Promise<T>
-): Promise<T> {
-  const previousText = status.text;
-  status.text = text;
-  try {
-    const result = await fn();
-    status.text = "$(check) OpenCode";
-    return result;
-  } catch (error) {
-    status.text = "$(warning) OpenCode";
-    throw error;
-  } finally {
-    if (status.text === text) {
-      status.text = previousText;
-    }
+    status.tooltip = `OpenCode unavailable: ${String(error)}`;
+    vscode.window.showWarningMessage(`OpenCode unavailable at ${client.url}: ${String(error)}`);
   }
 }

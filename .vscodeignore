@@ -1,11 +1,14 @@
 .vscode/**
 .github/**
 .npm-cache/**
+webview/**
 src/**
 node_modules/**
 .gitignore
 AGENTS.md
 tsconfig.json
+vite.config.ts
+docs/**
 **/*.map
 **/*.test.js
 **/*.test.js.map

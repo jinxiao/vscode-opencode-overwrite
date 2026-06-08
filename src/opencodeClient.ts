@@ -1,23 +1,31 @@
 import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import * as vscode from "vscode";
+import { normalizeOpenCodeModels, OpenCodeModelInfo } from "./openCodeModels";
 import {
+  OpenCodeAgent,
+  OpenCodeCommand,
   OpenCodeHealth,
   OpenCodeMessage,
-  OpenCodeProject,
-  OpenCodeSession,
-  OpenCodePart
+  OpenCodePart,
+  OpenCodeSession
 } from "./types";
-import { OpenCodeModelInfo, normalizeOpenCodeModels } from "./openCodeModels";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:4096";
 
-export class OpenCodeClient {
+export interface SendMessageOptions {
+  model?: string;
+  agent?: string;
+}
+
+export class OpenCodeClient implements vscode.Disposable {
   private childProcess: ChildProcessWithoutNullStreams | undefined;
-  private completionSessionId: string | undefined;
-  private chatSessionId: string | undefined;
   private startupError: Error | undefined;
 
   public constructor(private readonly output: vscode.OutputChannel) {}
+
+  public get url(): string {
+    return this.serverUrl;
+  }
 
   public async ensureReady(workspacePath: string): Promise<void> {
     if (await this.tryHealth()) {
@@ -25,9 +33,7 @@ export class OpenCodeClient {
     }
 
     if (this.hasExplicitServerUrl()) {
-      throw new Error(
-        `OpenCode server is not reachable at ${this.serverUrl}. Check opencodeVscode.serverUrl.`
-      );
+      throw new Error(`OpenCode server is not reachable at ${this.serverUrl}.`);
     }
 
     this.startServer(workspacePath);
@@ -38,26 +44,30 @@ export class OpenCodeClient {
     return this.request<OpenCodeHealth>("/global/health", { method: "GET" }, 5000, token);
   }
 
-  public get url(): string {
-    return this.serverUrl;
-  }
-
-  public async currentProject(
-    token?: vscode.CancellationToken
-  ): Promise<OpenCodeProject> {
-    return this.request<OpenCodeProject>("/project/current", { method: "GET" }, 5000, token);
-  }
-
-  public async listSessions(
-    token?: vscode.CancellationToken
-  ): Promise<OpenCodeSession[]> {
+  public async listSessions(token?: vscode.CancellationToken): Promise<OpenCodeSession[]> {
     const response = await this.request<OpenCodeSession[] | { data: OpenCodeSession[] }>(
       "/session",
       { method: "GET" },
       8000,
       token
     );
-    return Array.isArray(response) ? response : response.data;
+    return unwrapData(response) ?? [];
+  }
+
+  public async createSession(
+    title: string,
+    token?: vscode.CancellationToken
+  ): Promise<OpenCodeSession> {
+    const response = await this.request<OpenCodeSession | { data: OpenCodeSession }>(
+      "/session",
+      {
+        method: "POST",
+        body: JSON.stringify({ title })
+      },
+      8000,
+      token
+    );
+    return unwrapData(response);
   }
 
   public async sessionMessages(
@@ -70,7 +80,30 @@ export class OpenCodeClient {
       8000,
       token
     );
-    return Array.isArray(response) ? response : response.data;
+    return unwrapData(response) ?? [];
+  }
+
+  public async sendMessage(
+    sessionId: string,
+    text: string,
+    options: SendMessageOptions,
+    token?: vscode.CancellationToken
+  ): Promise<string> {
+    const body = {
+      parts: [{ type: "text", text }],
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.agent ? { agent: options.agent } : {})
+    };
+    const response = await this.request<unknown>(
+      `/session/${encodeURIComponent(sessionId)}/message`,
+      {
+        method: "POST",
+        body: JSON.stringify(body)
+      },
+      120000,
+      token
+    );
+    return collectText(response);
   }
 
   public async listProviderModels(
@@ -104,121 +137,54 @@ export class OpenCodeClient {
     return normalizeOpenCodeModels(configProviders, providers);
   }
 
-  public async complete(
-    prompt: string,
-    timeoutMs: number,
-    token: vscode.CancellationToken
-  ): Promise<string> {
-    const sessionId = await this.getCompletionSession(token);
-    const response = await this.request<unknown>(
-      `/session/${encodeURIComponent(sessionId)}/message`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          parts: [
-            {
-              type: "text",
-              text: prompt
-            }
-          ],
-          model: undefined,
-          providerID: undefined
-        })
-      },
-      timeoutMs,
-      token
-    );
-
-    return collectText(response);
+  public async listAgents(token?: vscode.CancellationToken): Promise<OpenCodeAgent[]> {
+    try {
+      const response = await this.request<unknown>("/agent", { method: "GET" }, 8000, token);
+      return normalizeAgents(response);
+    } catch (error) {
+      this.output.appendLine(`OpenCode /agent failed: ${formatError(error)}`);
+      return [];
+    }
   }
 
-  public async chat(
-    prompt: string,
-    timeoutMs: number,
-    token: vscode.CancellationToken,
-    model?: string
-  ): Promise<string> {
-    const sessionId = await this.getChatSession(token);
-    return this.sendMessage(sessionId, prompt, timeoutMs, token, model);
+  public async listCommands(token?: vscode.CancellationToken): Promise<OpenCodeCommand[]> {
+    try {
+      const response = await this.request<unknown>("/command", { method: "GET" }, 8000, token);
+      return normalizeCommands(response);
+    } catch (error) {
+      this.output.appendLine(`OpenCode /command failed: ${formatError(error)}`);
+      return [];
+    }
   }
 
-  public async sendMessage(
+  public async runCommand(
     sessionId: string,
-    text: string,
-    timeoutMs: number,
-    token: vscode.CancellationToken,
-    model?: string
+    command: string,
+    argumentsText: string | undefined,
+    options: SendMessageOptions,
+    token?: vscode.CancellationToken
   ): Promise<string> {
-    const body = {
-      parts: [
-        {
-          type: "text",
-          text
-        }
-      ],
-      ...(model ? { model } : {})
-    };
-
     const response = await this.request<unknown>(
-      `/session/${encodeURIComponent(sessionId)}/message`,
-      {
-        method: "POST",
-        body: JSON.stringify(body)
-      },
-      timeoutMs,
-      token
-    );
-
-    return collectText(response);
-  }
-
-  public async createSession(
-    title: string,
-    token: vscode.CancellationToken
-  ): Promise<string> {
-    const response = await this.request<OpenCodeSession | { data: OpenCodeSession }>(
-      "/session",
+      `/session/${encodeURIComponent(sessionId)}/command`,
       {
         method: "POST",
         body: JSON.stringify({
-          title
+          command: command.replace(/^\//, ""),
+          arguments: argumentsText ?? "",
+          ...(options.model ? { model: options.model } : {}),
+          ...(options.agent ? { agent: options.agent } : {})
         })
       },
-      5000,
+      120000,
       token
     );
-
-    const session = "data" in response ? response.data : response;
-    return session.id;
+    return collectText(response);
   }
 
   public dispose(): void {
     if (this.childProcess && !this.childProcess.killed) {
       this.childProcess.kill();
     }
-  }
-
-  private async getCompletionSession(
-    token: vscode.CancellationToken
-  ): Promise<string> {
-    if (this.completionSessionId) {
-      return this.completionSessionId;
-    }
-
-    this.completionSessionId = await this.createSession(
-      "VS Code Inline Completion",
-      token
-    );
-    return this.completionSessionId;
-  }
-
-  private async getChatSession(token: vscode.CancellationToken): Promise<string> {
-    if (this.chatSessionId) {
-      return this.chatSessionId;
-    }
-
-    this.chatSessionId = await this.createSession("VS Code Chat", token);
-    return this.chatSessionId;
   }
 
   private async tryHealth(): Promise<boolean> {
@@ -236,29 +202,20 @@ export class OpenCodeClient {
     }
 
     this.startupError = undefined;
-
     const opencodePath = vscode.workspace
       .getConfiguration("opencodeVscode")
       .get<string>("opencodePath", "opencode");
     const url = new URL(this.serverUrl);
-    const args = [
-      "serve",
-      "--hostname",
-      url.hostname,
-      "--port",
-      url.port || "4096"
-    ];
+    const args = ["serve", "--hostname", url.hostname, "--port", url.port || "4096"];
+    const stderr: string[] = [];
 
     this.output.appendLine(`Starting OpenCode server: ${opencodePath} ${args.join(" ")}`);
-    const stderr: string[] = [];
     this.childProcess = spawn(opencodePath, args, {
       cwd: workspacePath,
       shell: process.platform === "win32"
     });
 
-    this.childProcess.stdout.on("data", (data: Buffer) => {
-      this.output.append(data.toString());
-    });
+    this.childProcess.stdout.on("data", (data: Buffer) => this.output.append(data.toString()));
     this.childProcess.stderr.on("data", (data: Buffer) => {
       const text = data.toString();
       stderr.push(text);
@@ -266,18 +223,18 @@ export class OpenCodeClient {
     });
     this.childProcess.on("error", (error) => {
       this.startupError = new Error(
-        `Failed to start OpenCode CLI '${opencodePath}'. Install OpenCode, set opencodeVscode.opencodePath, or configure opencodeVscode.serverUrl. ${error.message}`
+        `Failed to start OpenCode CLI '${opencodePath}'. Set opencodeVscode.opencodePath or opencodeVscode.serverUrl. ${error.message}`
       );
       this.output.appendLine(this.startupError.message);
     });
     this.childProcess.on("exit", (code, signal) => {
       this.output.appendLine(
-        `OpenCode server process exited with code ${code ?? "unknown"} signal ${signal ?? "unknown"}.`
+        `OpenCode server exited with code ${code ?? "unknown"} signal ${signal ?? "unknown"}.`
       );
       if (code !== 0 && !this.startupError) {
         const details = stderr.join("").trim();
         this.startupError = new Error(
-          `OpenCode CLI '${opencodePath}' exited before the server became reachable. Install OpenCode, set opencodeVscode.opencodePath, or configure opencodeVscode.serverUrl.${details ? ` Output: ${details}` : ""}`
+          `OpenCode CLI '${opencodePath}' exited before becoming reachable.${details ? ` Output: ${details}` : ""}`
         );
       }
       this.childProcess = undefined;
@@ -302,9 +259,7 @@ export class OpenCodeClient {
       }
     }
 
-    throw new Error(
-      `OpenCode server did not become healthy at ${this.serverUrl}: ${String(lastError)}`
-    );
+    throw new Error(`OpenCode server did not become healthy at ${this.serverUrl}: ${String(lastError)}`);
   }
 
   private get serverUrl(): string {
@@ -334,10 +289,9 @@ export class OpenCodeClient {
     const disposable = token?.onCancellationRequested(() => controller.abort());
 
     try {
-      const requestUrl = `${this.serverUrl}${path}`;
       let response: Response;
       try {
-        response = await fetch(requestUrl, {
+        response = await fetch(`${this.serverUrl}${path}`, {
           ...init,
           signal: controller.signal,
           headers: {
@@ -347,9 +301,7 @@ export class OpenCodeClient {
           }
         });
       } catch (error) {
-        throw new Error(
-          `Cannot connect to OpenCode server at ${this.serverUrl}. Make sure OpenCode is installed and available as 'opencode', or set opencodeVscode.opencodePath/opencodeVscode.serverUrl. ${formatError(error)}`
-        );
+        throw new Error(`Cannot connect to OpenCode server at ${this.serverUrl}. ${formatError(error)}`);
       }
 
       if (!response.ok) {
@@ -374,7 +326,6 @@ export class OpenCodeClient {
       config.get<string>("serverPassword", "") ||
       process.env.OPENCODE_SERVER_PASSWORD ||
       "";
-
     if (!password) {
       return {};
     }
@@ -389,19 +340,16 @@ export class OpenCodeClient {
   }
 }
 
-function collectText(value: unknown): string {
+export function collectText(value: unknown): string {
   if (!value) {
     return "";
   }
-
   if (typeof value === "string") {
     return value;
   }
-
   if (Array.isArray(value)) {
     return value.map(collectText).filter(Boolean).join("\n");
   }
-
   if (typeof value !== "object") {
     return "";
   }
@@ -410,30 +358,111 @@ function collectText(value: unknown): string {
   if (typeof record.text === "string") {
     return record.text;
   }
-
   if (Array.isArray(record.parts)) {
     return record.parts
       .map((part) => collectPartText(part as OpenCodePart))
       .filter(Boolean)
       .join("\n");
   }
-
   if (record.data) {
     return collectText(record.data);
   }
-
   if (record.message) {
     return collectText(record.message);
   }
-
   return "";
 }
 
 function collectPartText(part: OpenCodePart): string {
-  if (part.type === "text" && typeof part.text === "string") {
-    return part.text;
+  return part.type === "text" && typeof part.text === "string" ? part.text : "";
+}
+
+function normalizeAgents(value: unknown): OpenCodeAgent[] {
+  return readItems(value).flatMap((item) => {
+    const id = readString(item.id) ?? readString(item.name);
+    if (!id) {
+      return [];
+    }
+    return [
+      {
+        id,
+        name: readString(item.name) ?? id,
+        description: readString(item.description)
+      }
+    ];
+  });
+}
+
+function normalizeCommands(value: unknown): OpenCodeCommand[] {
+  return readItems(value).flatMap((item) => {
+    const id = readString(item.id) ?? readString(item.name) ?? readString(item.command);
+    if (!id) {
+      return [];
+    }
+    const normalized = id.startsWith("/") ? id.slice(1) : id;
+    return [
+      {
+        id: normalized,
+        name: readString(item.name) ?? `/${normalized}`,
+        description: readString(item.description),
+        agent: readString(item.agent)
+      }
+    ];
+  });
+}
+
+function readItems(value: unknown): Record<string, unknown>[] {
+  const unwrapped = unwrapUnknown(value);
+  if (Array.isArray(unwrapped)) {
+    return unwrapped.filter(isRecord);
   }
-  return "";
+  if (!isRecord(unwrapped)) {
+    return [];
+  }
+
+  const candidate =
+    unwrapped.commands ??
+    unwrapped.command ??
+    unwrapped.agents ??
+    unwrapped.agent ??
+    unwrapped.all ??
+    unwrapped.items ??
+    unwrapped;
+
+  if (Array.isArray(candidate)) {
+    return candidate.filter(isRecord);
+  }
+  if (!isRecord(candidate)) {
+    return [];
+  }
+  return Object.entries(candidate).flatMap(([key, item]) => {
+    if (!isRecord(item)) {
+      return [];
+    }
+    return [{ id: key, ...item }];
+  });
+}
+
+function unwrapData<T>(value: T | { data: T }): T {
+  if (isRecord(value) && "data" in value) {
+    return value.data as T;
+  }
+  return value as T;
+}
+
+function unwrapUnknown(value: unknown): unknown {
+  if (isRecord(value) && "data" in value) {
+    return value.data;
+  }
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function delay(ms: number): Promise<void> {

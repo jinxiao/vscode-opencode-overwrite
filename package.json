@@ -1,8 +1,8 @@
 {
-  "name": "opencode-copilot-replacement",
-  "displayName": "OpenCode Copilot Replacement",
-  "description": "Replace GitHub Copilot inline completions with OpenCode-powered completions in VS Code.",
-  "version": "0.1.4",
+  "name": "opencode-agent",
+  "displayName": "OpenCode Agent",
+  "description": "Standalone OpenCode agent sidebar for VS Code.",
+  "version": "0.2.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -14,68 +14,100 @@
   },
   "categories": [
     "AI",
-    "Programming Languages"
+    "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:opencode.replaceCopilotNow",
-    "onCommand:opencode.restoreCopilotSettings",
-    "onCommand:opencode.refreshSessions",
-    "onCommand:opencode.showStatus",
-    "onCommand:opencode.useDefaultChatModel",
-    "onCommand:opencode.openChat",
-    "onLanguageModelChatProvider:opencode"
+    "onView:opencode.agentView",
+    "onCommand:opencode.openAgent",
+    "onCommand:opencode.newSession",
+    "onCommand:opencode.selectSession",
+    "onCommand:opencode.addContext",
+    "onCommand:opencode.clearContext",
+    "onCommand:opencode.runSlashCommand",
+    "onCommand:opencode.showStatus"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opencode",
+          "title": "OpenCode",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "opencode": [
+        {
+          "id": "opencode.agentView",
+          "name": "Agent"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "opencode.replaceCopilotNow",
-        "title": "OpenCode: Replace Copilot Completions"
+        "command": "opencode.openAgent",
+        "title": "OpenCode: Open Agent"
       },
       {
-        "command": "opencode.restoreCopilotSettings",
-        "title": "OpenCode: Restore Copilot Settings"
+        "command": "opencode.newSession",
+        "title": "OpenCode: New Session"
       },
       {
-        "command": "opencode.refreshSessions",
-        "title": "OpenCode: Refresh Current Project Sessions"
+        "command": "opencode.selectSession",
+        "title": "OpenCode: Select Session"
+      },
+      {
+        "command": "opencode.addContext",
+        "title": "OpenCode: Add Selection/File To Context"
+      },
+      {
+        "command": "opencode.clearContext",
+        "title": "OpenCode: Clear Current Context"
+      },
+      {
+        "command": "opencode.runSlashCommand",
+        "title": "OpenCode: Run Slash Command"
       },
       {
         "command": "opencode.showStatus",
-        "title": "OpenCode: Show Connection Status"
-      },
-      {
-        "command": "opencode.openChat",
-        "title": "OpenCode: Open Chat"
-      },
-      {
-        "command": "opencode.useDefaultChatModel",
-        "title": "OpenCode: Use OpenCode As Default Chat Model"
+        "title": "OpenCode: Show Status"
       }
     ],
-    "chatParticipants": [
-      {
-        "id": "opencode.chat",
-        "name": "opencode",
-        "fullName": "OpenCode",
-        "description": "Ask OpenCode directly. Requests handled by this participant are routed to the local OpenCode server.",
-        "isSticky": true
-      }
-    ],
-    "languageModelChatProviders": [
-      {
-        "vendor": "opencode",
-        "displayName": "OpenCode"
-      }
-    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "opencode.addContext",
+          "group": "navigation@20"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "opencode.addContext",
+          "group": "navigation@20"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "opencode.newSession",
+          "when": "view == opencode.agentView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opencode.selectSession",
+          "when": "view == opencode.agentView",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "configuration": {
-      "title": "OpenCode Copilot Replacement",
+      "title": "OpenCode Agent",
       "properties": {
         "opencodeVscode.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable OpenCode inline completions and workspace-level Copilot completion replacement."
+          "description": "Enable the standalone OpenCode Agent sidebar."
         },
         "opencodeVscode.serverUrl": {
           "type": [
@@ -100,53 +132,44 @@
           "default": "",
           "description": "Password for OpenCode server basic authentication. Prefer OPENCODE_SERVER_PASSWORD when possible."
         },
-        "opencodeVscode.sessionScope": {
-          "type": "string",
-          "enum": [
-            "workspace"
-          ],
-          "default": "workspace",
-          "description": "Scope for reading OpenCode sessions. Current implementation only reads sessions for the active workspace."
-        },
-        "opencodeVscode.completion.maxLatencyMs": {
+        "opencodeVscode.context.maxFileBytes": {
           "type": "number",
-          "default": 2500,
-          "minimum": 500,
-          "maximum": 15000,
-          "description": "Maximum time to wait for an OpenCode inline completion."
+          "default": 204800,
+          "minimum": 1024,
+          "maximum": 1048576,
+          "description": "Maximum bytes to read from a file context attachment."
         },
-        "opencodeVscode.completion.contextLines": {
+        "opencodeVscode.context.maxItems": {
           "type": "number",
-          "default": 80,
-          "minimum": 10,
-          "maximum": 300,
-          "description": "Number of lines around the cursor to send to OpenCode."
-        },
-        "opencodeVscode.completion.debounceMs": {
-          "type": "number",
-          "default": 250,
-          "minimum": 0,
-          "maximum": 2000,
-          "description": "Debounce delay before requesting inline completions."
-        },
-        "opencodeVscode.disableCopilotOnActivation": {
-          "type": "boolean",
-          "default": true,
-          "description": "Disable GitHub Copilot inline completions at workspace scope when this extension activates."
+          "default": 20,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum context attachments per session."
         }
       }
     }
   },
   "scripts": {
-    "compile": "tsc -p .",
+    "clean": "node -e \"const fs=require('fs');fs.rmSync('out',{recursive:true,force:true});fs.rmSync('media/webview',{recursive:true,force:true});\"",
+    "build:webview": "vite build",
+    "compile:extension": "tsc -p .",
+    "compile": "npm run clean && npm run build:webview && npm run compile:extension",
     "watch": "tsc -watch -p .",
     "test": "npm run compile && node --test out/test/*.test.js",
-    "package": "vsce package"
+    "package": "npm run compile && vsce package"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.120.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "@vscode/vsce": "^3.9.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
   }
 }
