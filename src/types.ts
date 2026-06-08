@@ -94,6 +94,8 @@ export interface SessionView {
   title: string;
   directory: string;
   updated: number;
+  summary?: string;
+  updatedLabel?: string;
 }
 
 export interface ModelView {

@@ -5,6 +5,7 @@ import { ContextStore } from "./contextStore";
 import { OpenCodeClient } from "./opencodeClient";
 import { FALLBACK_OPENCODE_MODEL } from "./openCodeModels";
 import { SessionManager } from "./sessionManager";
+import { formatRelativeTime, summarizeSessionMessages } from "./sessionSummary";
 import {
   AgentMode,
   AgentViewState,
@@ -12,6 +13,8 @@ import {
   ExtensionToWebviewMessage,
   OpenCodeAgent,
   OpenCodeMessage,
+  OpenCodeSession,
+  SessionView,
   WebviewToExtensionMessage
 } from "./types";
 import { activeWorkspacePath } from "./workspace";
@@ -259,7 +262,7 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
       status: "Connected",
       workspacePath,
       mode,
-      sessions: this.sessions.toSessionViews(sessions),
+      sessions: await this.buildSessionViews(sessions),
       activeSessionId: activeSession.id,
       messages: messages.map(toMessageView),
       models: models.map((model) => ({
@@ -275,6 +278,31 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
     };
     this.lastState = state;
     return state;
+  }
+
+  private async buildSessionViews(
+    sessions: readonly OpenCodeSession[]
+  ): Promise<SessionView[]> {
+    return Promise.all(
+      sessions.map(async (session) => {
+        let summary = "No messages yet";
+        try {
+          summary = summarizeSessionMessages(await this.client.sessionMessages(session.id));
+        } catch (error) {
+          this.output.appendLine(
+            `Failed to summarize OpenCode session ${session.id}: ${String(error)}`
+          );
+        }
+        return {
+          id: session.id,
+          title: session.title || "Untitled OpenCode session",
+          directory: session.directory,
+          updated: session.time.updated,
+          updatedLabel: formatRelativeTime(session.time.updated),
+          summary
+        };
+      })
+    );
   }
 
   private requestOptions(state: AgentViewState): { model?: string; agent?: string } {
