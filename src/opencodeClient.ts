@@ -7,6 +7,7 @@ import {
   OpenCodeSession,
   OpenCodePart
 } from "./types";
+import { OpenCodeModelInfo, normalizeOpenCodeModels } from "./openCodeModels";
 
 const DEFAULT_SERVER_URL = "http://127.0.0.1:4096";
 
@@ -72,6 +73,37 @@ export class OpenCodeClient {
     return Array.isArray(response) ? response : response.data;
   }
 
+  public async listProviderModels(
+    token?: vscode.CancellationToken
+  ): Promise<OpenCodeModelInfo[]> {
+    let configProviders: unknown;
+    let providers: unknown;
+
+    try {
+      configProviders = await this.request<unknown>(
+        "/config/providers",
+        { method: "GET" },
+        8000,
+        token
+      );
+    } catch (error) {
+      this.output.appendLine(`OpenCode /config/providers failed: ${formatError(error)}`);
+    }
+
+    try {
+      providers = await this.request<unknown>(
+        "/provider",
+        { method: "GET" },
+        8000,
+        token
+      );
+    } catch (error) {
+      this.output.appendLine(`OpenCode /provider failed: ${formatError(error)}`);
+    }
+
+    return normalizeOpenCodeModels(configProviders, providers);
+  }
+
   public async complete(
     prompt: string,
     timeoutMs: number,
@@ -103,32 +135,35 @@ export class OpenCodeClient {
   public async chat(
     prompt: string,
     timeoutMs: number,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
+    model?: string
   ): Promise<string> {
     const sessionId = await this.getChatSession(token);
-    return this.sendMessage(sessionId, prompt, timeoutMs, token);
+    return this.sendMessage(sessionId, prompt, timeoutMs, token, model);
   }
 
   public async sendMessage(
     sessionId: string,
     text: string,
     timeoutMs: number,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
+    model?: string
   ): Promise<string> {
+    const body = {
+      parts: [
+        {
+          type: "text",
+          text
+        }
+      ],
+      ...(model ? { model } : {})
+    };
+
     const response = await this.request<unknown>(
       `/session/${encodeURIComponent(sessionId)}/message`,
       {
         method: "POST",
-        body: JSON.stringify({
-          parts: [
-            {
-              type: "text",
-              text
-            }
-          ],
-          model: undefined,
-          providerID: undefined
-        })
+        body: JSON.stringify(body)
       },
       timeoutMs,
       token

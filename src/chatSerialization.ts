@@ -1,6 +1,15 @@
-export const OPENCODE_MODEL_VENDOR = "opencode";
-export const OPENCODE_MODEL_ID = "opencode";
-export const OPENCODE_MODEL_SETTING_VALUE = "opencode/opencode";
+import {
+  FALLBACK_OPENCODE_MODEL,
+  OPENCODE_MODEL_VENDOR,
+  opencodeModelSettingValue
+} from "./openCodeModels";
+
+export { OPENCODE_MODEL_VENDOR };
+
+export const OPENCODE_MODEL_ID = FALLBACK_OPENCODE_MODEL.id;
+export const OPENCODE_MODEL_SETTING_VALUE = opencodeModelSettingValue(
+  FALLBACK_OPENCODE_MODEL.id
+);
 
 export interface ChatTurn {
   role: "user" | "assistant";

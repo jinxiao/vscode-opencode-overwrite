@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { activeWorkspacePath, participantPrompt } from "./chatText";
 import { OpenCodeClient } from "./opencodeClient";
+import { OPENCODE_MODEL_VENDOR } from "./openCodeModels";
 
 export function createOpenCodeChatParticipant(
   client: OpenCodeClient,
@@ -17,9 +18,20 @@ export function createOpenCodeChatParticipant(
 
       try {
         response.progress("Sending request to OpenCode...");
-        output.appendLine("OpenCode chat participant handling VS Code Chat request.");
+        const selectedModel =
+          request.model.vendor === OPENCODE_MODEL_VENDOR ? request.model.id : undefined;
+        output.appendLine(
+          `OpenCode chat participant handling VS Code Chat request${
+            selectedModel ? ` with model ${selectedModel}` : ""
+          }.`
+        );
         await client.ensureReady(workspacePath);
-        const answer = await client.chat(participantPrompt(request.prompt), 60000, token);
+        const answer = await client.chat(
+          participantPrompt(request.prompt),
+          60000,
+          token,
+          selectedModel
+        );
         response.markdown(answer || "OpenCode returned an empty response.");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

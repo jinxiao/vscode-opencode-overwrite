@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { OPENCODE_MODEL_SETTING_VALUE } from "./chatText";
+import { FALLBACK_OPENCODE_MODEL, opencodeModelSettingValue } from "./openCodeModels";
 
 type BackupValue = {
   key: string;
@@ -63,13 +63,15 @@ export class SettingsManager {
     );
   }
 
-  public async preferOpenCodeChatModels(): Promise<void> {
+  public async preferOpenCodeChatModels(modelId = FALLBACK_OPENCODE_MODEL.id): Promise<void> {
     const target = vscode.ConfigurationTarget.Global;
     const config = vscode.workspace.getConfiguration();
+    const modelSettingValue = opencodeModelSettingValue(modelId);
 
-    await this.updateIfAvailable(config, "inlineChat.defaultModel", OPENCODE_MODEL_SETTING_VALUE, target);
-    await this.updateIfAvailable(config, "chat.utilityModel", OPENCODE_MODEL_SETTING_VALUE, target);
-    await this.updateIfAvailable(config, "chat.utilitySmallModel", OPENCODE_MODEL_SETTING_VALUE, target);
+    await this.updateIfAvailable(config, "chat.defaultModel", modelSettingValue, target);
+    await this.updateIfAvailable(config, "inlineChat.defaultModel", modelSettingValue, target);
+    await this.updateIfAvailable(config, "chat.utilityModel", modelSettingValue, target);
+    await this.updateIfAvailable(config, "chat.utilitySmallModel", modelSettingValue, target);
   }
 
   public async restoreCopilotSettings(): Promise<void> {

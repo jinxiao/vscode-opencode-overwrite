@@ -9,11 +9,11 @@ VS Code extension that replaces GitHub Copilot inline completions with OpenCode-
 - Connects to an OpenCode HTTP server, or starts `opencode serve --hostname 127.0.0.1 --port 4096`.
 - Reads only OpenCode sessions whose `directory` matches the current workspace.
 - Registers an inline completion provider for file-backed documents.
-- Registers OpenCode as a VS Code Chat model provider and an `@opencode` chat participant.
+- Registers OpenCode as a VS Code Chat model provider, discovers OpenCode provider models, and adds an `@opencode` chat participant as a fallback entry point.
 
 ## Requirements
 
-- VS Code `1.92.0` or newer.
+- VS Code `1.120.0` or newer.
 - OpenCode CLI available as `opencode`, or configure `opencodeVscode.opencodePath`.
 - A configured OpenCode provider/model. This extension reuses OpenCode's local server and does not manage model API keys.
 
@@ -35,16 +35,20 @@ Common fixes:
 - `OpenCode: Refresh Current Project Sessions`
 - `OpenCode: Show Connection Status`
 - `OpenCode: Open Chat`
+- `OpenCode: Use OpenCode As Default Chat Model`
 
 ## Chat
 
 Use one of these paths to make VS Code Chat call OpenCode:
 
-- Select `OpenCode` in the VS Code Chat model picker, then type normally.
+- Run `OpenCode: Use OpenCode As Default Chat Model`, then type normally in VS Code Chat.
+- Select one of the OpenCode-discovered models in the VS Code Chat model picker, then type normally.
 - Type `@opencode` before your message.
-- Run `OpenCode: Open Chat`, which opens Chat with `@opencode` prefilled.
+- Run `OpenCode: Open Chat`, which refreshes OpenCode models, prefers OpenCode in VS Code settings, and opens Chat.
 
-If the Chat picker still shows Gemini, Claude, or another provider, plain messages will continue to use that selected model. Requests handled by `@opencode` and the `OpenCode` model provider are routed to the local OpenCode server.
+If the Chat picker still shows Gemini, Claude, or another non-OpenCode provider, plain messages will continue to use that selected provider because VS Code controls the active Chat model. Requests handled by an OpenCode model or `@opencode` are routed to the local OpenCode server.
+
+The extension reads OpenCode models from `/config/providers` and `/provider`. Model IDs are exposed to VS Code as `provider/model`, for example `anthropic/claude-sonnet-4`, under the VS Code vendor `opencode`.
 
 ## Development
 

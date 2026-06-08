@@ -1,9 +1,10 @@
 import * as vscode from "vscode";
 import { createOpenCodeChatParticipant } from "./chatParticipant";
-import { activeWorkspacePath, OPENCODE_MODEL_VENDOR } from "./chatText";
+import { activeWorkspacePath } from "./chatText";
 import { OpenCodeInlineCompletionProvider } from "./completionProvider";
 import { OpenCodeLanguageModelProvider } from "./languageModelProvider";
 import { OpenCodeClient } from "./opencodeClient";
+import { FALLBACK_OPENCODE_MODEL, OPENCODE_MODEL_VENDOR } from "./openCodeModels";
 import { SessionIndex } from "./sessionIndex";
 import { SettingsManager } from "./settings";
 
@@ -26,6 +27,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output,
     status,
     client,
+    languageModelProvider,
     vscode.languages.registerInlineCompletionItemProvider(
       [{ scheme: "file" }],
       provider
@@ -37,9 +39,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     chatParticipant,
     vscode.commands.registerCommand("opencode.replaceCopilotNow", async () => {
       await settings.replaceCopilotCompletions();
-      await settings.preferOpenCodeChatModels();
+      await preferOpenCodeChatModel(languageModelProvider, settings);
       vscode.window.showInformationMessage(
-        "OpenCode is now handling inline completions for this workspace."
+        "OpenCode is now handling inline completions and is preferred for VS Code Chat."
+      );
+    }),
+    vscode.commands.registerCommand("opencode.useDefaultChatModel", async () => {
+      const model = await preferOpenCodeChatModel(languageModelProvider, settings);
+      vscode.window.showInformationMessage(
+        `OpenCode Chat default model set to ${model.name}.`
       );
     }),
     vscode.commands.registerCommand("opencode.restoreCopilotSettings", async () => {
@@ -62,15 +70,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await showStatus(client, status);
     }),
     vscode.commands.registerCommand("opencode.openChat", async () => {
-      await vscode.commands.executeCommand("workbench.action.chat.open", {
-        query: "@opencode "
-      });
+      await preferOpenCodeChatModel(languageModelProvider, settings);
+      await vscode.commands.executeCommand("workbench.action.chat.open");
     })
   );
 
   if (settings.isEnabled() && settings.shouldDisableCopilotOnActivation()) {
     await settings.replaceCopilotCompletions();
-    await settings.preferOpenCodeChatModels();
   }
 
   const workspacePath = activeWorkspacePath();
@@ -78,6 +84,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void withStatus(status, "$(sync~spin) OpenCode", async () => {
       await client.ensureReady(workspacePath);
       await sessions.refresh(workspacePath);
+      const models = await languageModelProvider.refreshModels(workspacePath);
+      if (settings.shouldDisableCopilotOnActivation()) {
+        await settings.preferOpenCodeChatModels(preferredModel(models).id);
+      }
     }).catch((error) => {
       status.text = "$(warning) OpenCode";
       status.tooltip = `OpenCode connection failed: ${String(error)}`;
@@ -112,6 +122,35 @@ async function showStatus(
       `OpenCode server is not reachable at ${client.url}: ${String(error)}`
     );
   }
+}
+
+async function preferOpenCodeChatModel(
+  languageModelProvider: OpenCodeLanguageModelProvider,
+  settings: SettingsManager
+): Promise<vscode.LanguageModelChatInformation> {
+  const models = await languageModelProvider.refreshModels(activeWorkspacePath());
+  const model = preferredModel(models);
+  await settings.preferOpenCodeChatModels(model.id);
+  return model;
+}
+
+function preferredModel(
+  models: readonly vscode.LanguageModelChatInformation[]
+): vscode.LanguageModelChatInformation {
+  return (
+    models.find((model) => model.id !== FALLBACK_OPENCODE_MODEL.id) ??
+    models[0] ?? {
+      id: FALLBACK_OPENCODE_MODEL.id,
+      name: FALLBACK_OPENCODE_MODEL.name,
+      family: FALLBACK_OPENCODE_MODEL.providerID,
+      version: "1",
+      maxInputTokens: FALLBACK_OPENCODE_MODEL.maxInputTokens,
+      maxOutputTokens: FALLBACK_OPENCODE_MODEL.maxOutputTokens,
+      capabilities: {
+        toolCalling: FALLBACK_OPENCODE_MODEL.supportsTools
+      }
+    }
+  );
 }
 
 async function withStatus<T>(
