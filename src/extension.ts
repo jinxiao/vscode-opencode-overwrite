@@ -77,7 +77,11 @@ async function showStatus(
   client: OpenCodeClient,
   status: vscode.StatusBarItem
 ): Promise<void> {
+  const workspacePath = activeWorkspacePath();
   try {
+    if (workspacePath) {
+      await client.ensureReady(workspacePath);
+    }
     const health = await client.health();
     status.text = "$(check) OpenCode";
     status.tooltip = `OpenCode server healthy (${health.version ?? "unknown version"})`;
@@ -88,7 +92,7 @@ async function showStatus(
     status.text = "$(warning) OpenCode";
     status.tooltip = `OpenCode server is not reachable: ${String(error)}`;
     vscode.window.showWarningMessage(
-      `OpenCode server is not reachable: ${String(error)}`
+      `OpenCode server is not reachable at ${client.url}: ${String(error)}`
     );
   }
 }

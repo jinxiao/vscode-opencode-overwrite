@@ -13,6 +13,7 @@ const DEFAULT_SERVER_URL = "http://127.0.0.1:4096";
 export class OpenCodeClient {
   private childProcess: ChildProcessWithoutNullStreams | undefined;
   private completionSessionId: string | undefined;
+  private startupError: Error | undefined;
 
   public constructor(private readonly output: vscode.OutputChannel) {}
 
@@ -33,6 +34,10 @@ export class OpenCodeClient {
 
   public async health(token?: vscode.CancellationToken): Promise<OpenCodeHealth> {
     return this.request<OpenCodeHealth>("/global/health", { method: "GET" }, 5000, token);
+  }
+
+  public get url(): string {
+    return this.serverUrl;
   }
 
   public async currentProject(
@@ -138,6 +143,8 @@ export class OpenCodeClient {
       return;
     }
 
+    this.startupError = undefined;
+
     const opencodePath = vscode.workspace
       .getConfiguration("opencodeVscode")
       .get<string>("opencodePath", "opencode");
@@ -151,6 +158,7 @@ export class OpenCodeClient {
     ];
 
     this.output.appendLine(`Starting OpenCode server: ${opencodePath} ${args.join(" ")}`);
+    const stderr: string[] = [];
     this.childProcess = spawn(opencodePath, args, {
       cwd: workspacePath,
       shell: process.platform === "win32"
@@ -160,12 +168,26 @@ export class OpenCodeClient {
       this.output.append(data.toString());
     });
     this.childProcess.stderr.on("data", (data: Buffer) => {
-      this.output.append(data.toString());
+      const text = data.toString();
+      stderr.push(text);
+      this.output.append(text);
+    });
+    this.childProcess.on("error", (error) => {
+      this.startupError = new Error(
+        `Failed to start OpenCode CLI '${opencodePath}'. Install OpenCode, set opencodeVscode.opencodePath, or configure opencodeVscode.serverUrl. ${error.message}`
+      );
+      this.output.appendLine(this.startupError.message);
     });
     this.childProcess.on("exit", (code, signal) => {
       this.output.appendLine(
         `OpenCode server process exited with code ${code ?? "unknown"} signal ${signal ?? "unknown"}.`
       );
+      if (code !== 0 && !this.startupError) {
+        const details = stderr.join("").trim();
+        this.startupError = new Error(
+          `OpenCode CLI '${opencodePath}' exited before the server became reachable. Install OpenCode, set opencodeVscode.opencodePath, or configure opencodeVscode.serverUrl.${details ? ` Output: ${details}` : ""}`
+        );
+      }
       this.childProcess = undefined;
     });
   }
@@ -175,6 +197,10 @@ export class OpenCodeClient {
     let lastError: unknown;
 
     while (Date.now() < deadline) {
+      if (this.startupError) {
+        throw this.startupError;
+      }
+
       try {
         await this.health();
         return;
@@ -216,15 +242,23 @@ export class OpenCodeClient {
     const disposable = token?.onCancellationRequested(() => controller.abort());
 
     try {
-      const response = await fetch(`${this.serverUrl}${path}`, {
-        ...init,
-        signal: controller.signal,
-        headers: {
-          "content-type": "application/json",
-          ...this.authHeader(),
-          ...(init.headers ?? {})
-        }
-      });
+      const requestUrl = `${this.serverUrl}${path}`;
+      let response: Response;
+      try {
+        response = await fetch(requestUrl, {
+          ...init,
+          signal: controller.signal,
+          headers: {
+            "content-type": "application/json",
+            ...this.authHeader(),
+            ...(init.headers ?? {})
+          }
+        });
+      } catch (error) {
+        throw new Error(
+          `Cannot connect to OpenCode server at ${this.serverUrl}. Make sure OpenCode is installed and available as 'opencode', or set opencodeVscode.opencodePath/opencodeVscode.serverUrl. ${formatError(error)}`
+        );
+      }
 
       if (!response.ok) {
         const body = await response.text().catch(() => "");
@@ -312,4 +346,11 @@ function collectPartText(part: OpenCodePart): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return String(error);
 }

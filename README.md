@@ -16,6 +16,17 @@ VS Code extension that replaces GitHub Copilot inline completions with OpenCode-
 - OpenCode CLI available as `opencode`, or configure `opencodeVscode.opencodePath`.
 - A configured OpenCode provider/model. This extension reuses OpenCode's local server and does not manage model API keys.
 
+## Troubleshooting
+
+If VS Code shows `OpenCode server is not reachable`, check the extension output channel named `OpenCode`.
+
+Common fixes:
+
+- Install the OpenCode CLI and make sure `opencode --help` works from a new terminal.
+- If the CLI is not on `PATH`, set `opencodeVscode.opencodePath` to the full executable path.
+- If you already run an OpenCode server yourself, set `opencodeVscode.serverUrl` to that server URL.
+- On Windows, restart VS Code after changing `PATH` so the extension host receives the updated environment.
+
 ## Commands
 
 - `OpenCode: Replace Copilot Completions`
