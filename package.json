@@ -1,0 +1,122 @@
+{
+  "name": "opencode-copilot-replacement",
+  "displayName": "OpenCode Copilot Replacement",
+  "description": "Replace GitHub Copilot inline completions with OpenCode-powered completions in VS Code.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:opencode.replaceCopilotNow",
+    "onCommand:opencode.restoreCopilotSettings",
+    "onCommand:opencode.refreshSessions",
+    "onCommand:opencode.showStatus"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "opencode.replaceCopilotNow",
+        "title": "OpenCode: Replace Copilot Completions"
+      },
+      {
+        "command": "opencode.restoreCopilotSettings",
+        "title": "OpenCode: Restore Copilot Settings"
+      },
+      {
+        "command": "opencode.refreshSessions",
+        "title": "OpenCode: Refresh Current Project Sessions"
+      },
+      {
+        "command": "opencode.showStatus",
+        "title": "OpenCode: Show Connection Status"
+      }
+    ],
+    "configuration": {
+      "title": "OpenCode Copilot Replacement",
+      "properties": {
+        "opencodeVscode.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable OpenCode inline completions and workspace-level Copilot completion replacement."
+        },
+        "opencodeVscode.serverUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "OpenCode server URL. Leave empty to use http://127.0.0.1:4096 and start `opencode serve` when needed."
+        },
+        "opencodeVscode.opencodePath": {
+          "type": "string",
+          "default": "opencode",
+          "description": "Path to the OpenCode CLI used to start a local server."
+        },
+        "opencodeVscode.serverUsername": {
+          "type": "string",
+          "default": "opencode",
+          "description": "Username for OpenCode server basic authentication when OPENCODE_SERVER_PASSWORD is configured."
+        },
+        "opencodeVscode.serverPassword": {
+          "type": "string",
+          "default": "",
+          "description": "Password for OpenCode server basic authentication. Prefer OPENCODE_SERVER_PASSWORD when possible."
+        },
+        "opencodeVscode.sessionScope": {
+          "type": "string",
+          "enum": [
+            "workspace"
+          ],
+          "default": "workspace",
+          "description": "Scope for reading OpenCode sessions. Current implementation only reads sessions for the active workspace."
+        },
+        "opencodeVscode.completion.maxLatencyMs": {
+          "type": "number",
+          "default": 2500,
+          "minimum": 500,
+          "maximum": 15000,
+          "description": "Maximum time to wait for an OpenCode inline completion."
+        },
+        "opencodeVscode.completion.contextLines": {
+          "type": "number",
+          "default": 80,
+          "minimum": 10,
+          "maximum": 300,
+          "description": "Number of lines around the cursor to send to OpenCode."
+        },
+        "opencodeVscode.completion.debounceMs": {
+          "type": "number",
+          "default": 250,
+          "minimum": 0,
+          "maximum": 2000,
+          "description": "Debounce delay before requesting inline completions."
+        },
+        "opencodeVscode.disableCopilotOnActivation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Disable GitHub Copilot inline completions at workspace scope when this extension activates."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "test": "npm run compile && node --test out/test/*.test.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.92.0",
+    "@vscode/vsce": "^3.1.0",
+    "typescript": "^5.5.4"
+  }
+}
