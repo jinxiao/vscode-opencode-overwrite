@@ -4,6 +4,7 @@
 src/**
 node_modules/**
 .gitignore
+AGENTS.md
 tsconfig.json
 **/*.map
 **/*.test.js

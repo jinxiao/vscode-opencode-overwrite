@@ -2,7 +2,7 @@
   "name": "opencode-copilot-replacement",
   "displayName": "OpenCode Copilot Replacement",
   "description": "Replace GitHub Copilot inline completions with OpenCode-powered completions in VS Code.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "local",
   "license": "MIT",
   "repository": {
