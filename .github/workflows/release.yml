@@ -1,0 +1,45 @@
+name: Release VSIX
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish VSIX
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+
+      - name: Package VSIX
+        run: npm run package -- --out "${VSIX_NAME}"
+        env:
+          VSIX_NAME: opencode-copilot-replacement-${{ github.ref_name }}.vsix
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VSIX_NAME: opencode-copilot-replacement-${{ github.ref_name }}.vsix
+        run: |
+          gh release create "${GITHUB_REF_NAME}" "${VSIX_NAME}" \
+            --verify-tag \
+            --title "opencode-copilot-replacement ${GITHUB_REF_NAME}" \
+            --notes "VS Code VSIX package for ${GITHUB_REF_NAME}."

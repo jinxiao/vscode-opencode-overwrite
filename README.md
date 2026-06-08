@@ -32,3 +32,15 @@ npm run test
 ```
 
 Use `F5` in VS Code to launch an Extension Development Host.
+
+## Release
+
+GitHub Actions publishes a VSIX to GitHub Releases when a `v*` tag is pushed.
+
+```powershell
+npm version patch
+git push origin main
+git push origin v0.1.1
+```
+
+Replace `v0.1.1` with the version tag created by `npm version`.
