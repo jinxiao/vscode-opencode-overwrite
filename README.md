@@ -9,6 +9,7 @@ VS Code extension that replaces GitHub Copilot inline completions with OpenCode-
 - Connects to an OpenCode HTTP server, or starts `opencode serve --hostname 127.0.0.1 --port 4096`.
 - Reads only OpenCode sessions whose `directory` matches the current workspace.
 - Registers an inline completion provider for file-backed documents.
+- Registers OpenCode as a VS Code Chat model provider and an `@opencode` chat participant.
 
 ## Requirements
 
@@ -33,6 +34,17 @@ Common fixes:
 - `OpenCode: Restore Copilot Settings`
 - `OpenCode: Refresh Current Project Sessions`
 - `OpenCode: Show Connection Status`
+- `OpenCode: Open Chat`
+
+## Chat
+
+Use one of these paths to make VS Code Chat call OpenCode:
+
+- Select `OpenCode` in the VS Code Chat model picker, then type normally.
+- Type `@opencode` before your message.
+- Run `OpenCode: Open Chat`, which opens Chat with `@opencode` prefilled.
+
+If the Chat picker still shows Gemini, Claude, or another provider, plain messages will continue to use that selected model. Requests handled by `@opencode` and the `OpenCode` model provider are routed to the local OpenCode server.
 
 ## Development
 

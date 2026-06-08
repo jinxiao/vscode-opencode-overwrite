@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { OPENCODE_MODEL_SETTING_VALUE } from "./chatText";
 
 type BackupValue = {
   key: string;
@@ -62,6 +63,15 @@ export class SettingsManager {
     );
   }
 
+  public async preferOpenCodeChatModels(): Promise<void> {
+    const target = vscode.ConfigurationTarget.Global;
+    const config = vscode.workspace.getConfiguration();
+
+    await this.updateIfAvailable(config, "inlineChat.defaultModel", OPENCODE_MODEL_SETTING_VALUE, target);
+    await this.updateIfAvailable(config, "chat.utilityModel", OPENCODE_MODEL_SETTING_VALUE, target);
+    await this.updateIfAvailable(config, "chat.utilitySmallModel", OPENCODE_MODEL_SETTING_VALUE, target);
+  }
+
   public async restoreCopilotSettings(): Promise<void> {
     const backup =
       this.context.globalState.get<BackupValue[]>(BACKUP_KEY) ?? [];
@@ -111,5 +121,20 @@ export class SettingsManager {
     });
 
     await this.context.globalState.update(BACKUP_KEY, backup);
+  }
+
+  private async updateIfAvailable(
+    config: vscode.WorkspaceConfiguration,
+    key: string,
+    value: string,
+    target: vscode.ConfigurationTarget
+  ): Promise<void> {
+    const inspected = config.inspect(key);
+    if (!inspected) {
+      this.output.appendLine(`VS Code setting '${key}' is not available in this build.`);
+      return;
+    }
+
+    await config.update(key, value, target);
   }
 }

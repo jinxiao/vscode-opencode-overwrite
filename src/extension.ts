@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
+import { createOpenCodeChatParticipant } from "./chatParticipant";
+import { activeWorkspacePath, OPENCODE_MODEL_VENDOR } from "./chatText";
 import { OpenCodeInlineCompletionProvider } from "./completionProvider";
+import { OpenCodeLanguageModelProvider } from "./languageModelProvider";
 import { OpenCodeClient } from "./opencodeClient";
 import { SessionIndex } from "./sessionIndex";
 import { SettingsManager } from "./settings";
@@ -11,10 +14,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const client = new OpenCodeClient(output);
   const sessions = new SessionIndex(client, output);
   const provider = new OpenCodeInlineCompletionProvider(client, sessions, output);
+  const languageModelProvider = new OpenCodeLanguageModelProvider(client, output);
+  const chatParticipant = createOpenCodeChatParticipant(client, output);
 
   status.command = "opencode.showStatus";
   status.text = "$(sparkle) OpenCode";
-  status.tooltip = "OpenCode inline completions";
+  status.tooltip = "OpenCode inline completions and chat";
   status.show();
 
   context.subscriptions.push(
@@ -25,8 +30,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       [{ scheme: "file" }],
       provider
     ),
+    vscode.lm.registerLanguageModelChatProvider(
+      OPENCODE_MODEL_VENDOR,
+      languageModelProvider
+    ),
+    chatParticipant,
     vscode.commands.registerCommand("opencode.replaceCopilotNow", async () => {
       await settings.replaceCopilotCompletions();
+      await settings.preferOpenCodeChatModels();
       vscode.window.showInformationMessage(
         "OpenCode is now handling inline completions for this workspace."
       );
@@ -49,11 +60,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("opencode.showStatus", async () => {
       await showStatus(client, status);
+    }),
+    vscode.commands.registerCommand("opencode.openChat", async () => {
+      await vscode.commands.executeCommand("workbench.action.chat.open", {
+        query: "@opencode "
+      });
     })
   );
 
   if (settings.isEnabled() && settings.shouldDisableCopilotOnActivation()) {
     await settings.replaceCopilotCompletions();
+    await settings.preferOpenCodeChatModels();
   }
 
   const workspacePath = activeWorkspacePath();
@@ -95,15 +112,6 @@ async function showStatus(
       `OpenCode server is not reachable at ${client.url}: ${String(error)}`
     );
   }
-}
-
-function activeWorkspacePath(): string | undefined {
-  const editor = vscode.window.activeTextEditor;
-  if (editor) {
-    return vscode.workspace.getWorkspaceFolder(editor.document.uri)?.uri.fsPath;
-  }
-
-  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
 async function withStatus<T>(

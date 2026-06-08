@@ -13,6 +13,7 @@ const DEFAULT_SERVER_URL = "http://127.0.0.1:4096";
 export class OpenCodeClient {
   private childProcess: ChildProcessWithoutNullStreams | undefined;
   private completionSessionId: string | undefined;
+  private chatSessionId: string | undefined;
   private startupError: Error | undefined;
 
   public constructor(private readonly output: vscode.OutputChannel) {}
@@ -99,6 +100,63 @@ export class OpenCodeClient {
     return collectText(response);
   }
 
+  public async chat(
+    prompt: string,
+    timeoutMs: number,
+    token: vscode.CancellationToken
+  ): Promise<string> {
+    const sessionId = await this.getChatSession(token);
+    return this.sendMessage(sessionId, prompt, timeoutMs, token);
+  }
+
+  public async sendMessage(
+    sessionId: string,
+    text: string,
+    timeoutMs: number,
+    token: vscode.CancellationToken
+  ): Promise<string> {
+    const response = await this.request<unknown>(
+      `/session/${encodeURIComponent(sessionId)}/message`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          parts: [
+            {
+              type: "text",
+              text
+            }
+          ],
+          model: undefined,
+          providerID: undefined
+        })
+      },
+      timeoutMs,
+      token
+    );
+
+    return collectText(response);
+  }
+
+  public async createSession(
+    title: string,
+    token: vscode.CancellationToken
+  ): Promise<string> {
+    const response = await this.request<OpenCodeSession | { data: OpenCodeSession }>(
+      "/session",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title
+        })
+      },
+      5000,
+      token
+    );
+
+    const session = "data" in response ? response.data : response;
+    return session.id;
+  }
+
   public dispose(): void {
     if (this.childProcess && !this.childProcess.killed) {
       this.childProcess.kill();
@@ -112,21 +170,20 @@ export class OpenCodeClient {
       return this.completionSessionId;
     }
 
-    const response = await this.request<OpenCodeSession | { data: OpenCodeSession }>(
-      "/session",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: "VS Code Inline Completion"
-        })
-      },
-      5000,
+    this.completionSessionId = await this.createSession(
+      "VS Code Inline Completion",
       token
     );
+    return this.completionSessionId;
+  }
 
-    const session = "data" in response ? response.data : response;
-    this.completionSessionId = session.id;
-    return session.id;
+  private async getChatSession(token: vscode.CancellationToken): Promise<string> {
+    if (this.chatSessionId) {
+      return this.chatSessionId;
+    }
+
+    this.chatSessionId = await this.createSession("VS Code Chat", token);
+    return this.chatSessionId;
   }
 
   private async tryHealth(): Promise<boolean> {
