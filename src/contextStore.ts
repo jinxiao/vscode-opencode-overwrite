@@ -56,6 +56,20 @@ export class ContextStore {
     return attachment;
   }
 
+  public async readAttachmentFromUri(
+    workspacePath: string,
+    uri: vscode.Uri
+  ): Promise<ContextAttachment | undefined> {
+    const stat = await vscode.workspace.fs.stat(uri);
+    if (stat.type !== vscode.FileType.File) {
+      return undefined;
+    }
+
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    const text = Buffer.from(bytes).toString("utf8");
+    return this.createAttachment(workspacePath, uri.fsPath, undefined, text);
+  }
+
   public buildPromptPrefix(attachments: readonly ContextAttachment[]): string {
     if (!attachments.length) {
       return "";

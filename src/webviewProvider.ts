@@ -2,6 +2,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { parseSlashCommandInput } from "./commandParsing";
 import { ContextStore } from "./contextStore";
+import { parseFileMentions } from "./fileMentions";
 import { OpenCodeClient } from "./opencodeClient";
 import { FALLBACK_OPENCODE_MODEL } from "./openCodeModels";
 import { SessionManager } from "./sessionManager";
@@ -10,7 +11,9 @@ import {
   AgentMode,
   AgentViewState,
   ChatMessageView,
+  ContextAttachment,
   ExtensionToWebviewMessage,
+  FileSuggestion,
   OpenCodeAgent,
   OpenCodeMessage,
   OpenCodeSession,
@@ -21,6 +24,8 @@ import { activeWorkspacePath } from "./workspace";
 
 const MODE_KEY = "opencode.agent.mode";
 const MODEL_KEY = "opencode.agent.model";
+const AGENT_KEY = "opencode.agent.agent";
+const DEFAULT_AGENT_ID = "__opencode_default__";
 
 export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "opencode.agentView";
@@ -174,6 +179,10 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
           await this.context.workspaceState.update(MODEL_KEY, message.modelId);
           await this.refresh();
           return;
+        case "selectAgent":
+          await this.context.workspaceState.update(AGENT_KEY, message.agentId);
+          await this.refresh();
+          return;
         case "setMode":
           await this.context.workspaceState.update(MODE_KEY, message.mode);
           await this.refresh();
@@ -183,6 +192,9 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
           return;
         case "clearContext":
           await this.clearContext();
+          return;
+        case "searchFiles":
+          await this.searchFiles(message.query);
           return;
       }
     } catch (error) {
@@ -205,7 +217,7 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
       if (!activeSessionId) {
         throw new Error("OpenCode has no active session.");
       }
-      const prompt = this.withContext(text, state);
+      const prompt = await this.withContext(text, state, workspacePath);
       await this.client.sendMessage(activeSessionId, prompt, this.requestOptions(state));
       await this.refresh();
     });
@@ -252,6 +264,11 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
     const sessions = await this.sessions.listWorkspaceSessions(workspacePath);
     const messages = await this.client.sessionMessages(activeSession.id);
     const mode = this.context.workspaceState.get<AgentMode>(MODE_KEY, "chat");
+    const savedAgentId = this.context.workspaceState.get<string>(AGENT_KEY);
+    const selectedAgentId =
+      savedAgentId === DEFAULT_AGENT_ID
+        ? DEFAULT_AGENT_ID
+        : savedAgentId ?? preferredAgentId(agents);
     const selectedModelId =
       this.context.workspaceState.get<string>(MODEL_KEY) ?? models.find((model) => !model.isFallback)?.id ?? models[0]?.id;
     const context = this.contextStore.get(workspacePath, activeSession.id);
@@ -262,6 +279,7 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
       status: "Connected",
       workspacePath,
       mode,
+      selectedAgentId,
       sessions: await this.buildSessionViews(sessions),
       activeSessionId: activeSession.id,
       messages: messages.map(toMessageView),
@@ -311,13 +329,73 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
         state.selectedModelId && state.selectedModelId !== FALLBACK_OPENCODE_MODEL.id
           ? state.selectedModelId
           : undefined,
-      agent: preferredAgent(state.mode, state.agents)
+      agent:
+        state.selectedAgentId && state.selectedAgentId !== DEFAULT_AGENT_ID
+          ? state.selectedAgentId
+          : undefined
     };
   }
 
-  private withContext(text: string, state: AgentViewState): string {
-    const prefix = this.contextStore.buildPromptPrefix(state.context);
+  private async withContext(
+    text: string,
+    state: AgentViewState,
+    workspacePath: string
+  ): Promise<string> {
+    const mentionedAttachments = await this.resolveMentionAttachments(text, workspacePath);
+    const prefix = this.contextStore.buildPromptPrefix([
+      ...state.context,
+      ...mentionedAttachments
+    ]);
     return prefix ? `${prefix}\n\nUser request:\n${text}` : text;
+  }
+
+  private async resolveMentionAttachments(
+    text: string,
+    workspacePath: string
+  ): Promise<ContextAttachment[]> {
+    const mentions = Array.from(new Set(parseFileMentions(text)));
+    const attachments: ContextAttachment[] = [];
+    for (const mention of mentions) {
+      const uri = vscode.Uri.file(path.join(workspacePath, mention));
+      try {
+        const attachment = await this.contextStore.readAttachmentFromUri(workspacePath, uri);
+        if (attachment) {
+          attachments.push(attachment);
+        }
+      } catch (error) {
+        this.output.appendLine(`Failed to resolve @${mention}: ${String(error)}`);
+      }
+    }
+    return attachments;
+  }
+
+  private async searchFiles(query: string): Promise<void> {
+    const workspacePath = activeWorkspacePath();
+    if (!workspacePath) {
+      this.post({ type: "fileSuggestions", query, suggestions: [] });
+      return;
+    }
+
+    const normalizedQuery = query.replace(/^@/, "").trim();
+    if (!normalizedQuery) {
+      this.post({ type: "fileSuggestions", query, suggestions: [] });
+      return;
+    }
+
+    const pattern = `**/*${escapeGlob(normalizedQuery)}*`;
+    const uris = await vscode.workspace.findFiles(
+      pattern,
+      "{**/node_modules/**,**/.git/**,**/out/**,**/dist/**,**/media/webview/**}",
+      30
+    );
+    const suggestions: FileSuggestion[] = uris.map((uri) => {
+      const relativePath = path.relative(workspacePath, uri.fsPath).replace(/\\/g, "/");
+      return {
+        path: relativePath,
+        label: relativePath
+      };
+    });
+    this.post({ type: "fileSuggestions", query, suggestions });
   }
 
   private async ensureReady(workspacePath: string): Promise<void> {
@@ -409,9 +487,15 @@ function toMessageView(message: OpenCodeMessage): ChatMessageView {
   };
 }
 
-function preferredAgent(mode: AgentMode, agents: readonly OpenCodeAgent[]): string | undefined {
-  const preferred = mode === "chat" ? "plan" : "build";
-  return agents.find((agent) => agent.id === preferred || agent.name === preferred)?.id;
+function preferredAgentId(agents: readonly OpenCodeAgent[]): string | undefined {
+  return (
+    agents.find((agent) => agent.id === "plan" || agent.name === "plan")?.id ??
+    agents.find((agent) => agent.id === "build" || agent.name === "build")?.id
+  );
+}
+
+function escapeGlob(value: string): string {
+  return value.replace(/[{}[\]()\\?*+!@]/g, "");
 }
 
 function randomNonce(): string {

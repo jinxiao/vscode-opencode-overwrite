@@ -1,5 +1,6 @@
 import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import * as vscode from "vscode";
+import { normalizeCommands } from "./openCodeCommands";
 import { normalizeOpenCodeModels, OpenCodeModelInfo } from "./openCodeModels";
 import {
   OpenCodeAgent,
@@ -388,24 +389,6 @@ function normalizeAgents(value: unknown): OpenCodeAgent[] {
         id,
         name: readString(item.name) ?? id,
         description: readString(item.description)
-      }
-    ];
-  });
-}
-
-function normalizeCommands(value: unknown): OpenCodeCommand[] {
-  return readItems(value).flatMap((item) => {
-    const id = readString(item.id) ?? readString(item.name) ?? readString(item.command);
-    if (!id) {
-      return [];
-    }
-    const normalized = id.startsWith("/") ? id.slice(1) : id;
-    return [
-      {
-        id: normalized,
-        name: readString(item.name) ?? `/${normalized}`,
-        description: readString(item.description),
-        agent: readString(item.agent)
       }
     ];
   });

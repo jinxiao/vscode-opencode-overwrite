@@ -6,6 +6,7 @@ export interface AgentViewState {
   status: string;
   workspacePath?: string;
   mode: AgentMode;
+  selectedAgentId?: string;
   sessions: SessionView[];
   activeSessionId?: string;
   messages: ChatMessageView[];
@@ -61,7 +62,13 @@ export interface ContextAttachment {
   createdAt: number;
 }
 
+export interface FileSuggestion {
+  path: string;
+  label: string;
+}
+
 export type ExtensionMessage =
   | { type: "state"; state: AgentViewState }
   | { type: "busy"; value: boolean; message?: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "fileSuggestions"; query: string; suggestions: FileSuggestion[] };

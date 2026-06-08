@@ -79,6 +79,7 @@ export interface AgentViewState {
   status: string;
   workspacePath?: string;
   mode: AgentMode;
+  selectedAgentId?: string;
   sessions: SessionView[];
   activeSessionId?: string;
   messages: ChatMessageView[];
@@ -105,6 +106,11 @@ export interface ModelView {
   providerName?: string;
 }
 
+export interface FileSuggestion {
+  path: string;
+  label: string;
+}
+
 export type WebviewToExtensionMessage =
   | { type: "initialize" }
   | { type: "refresh" }
@@ -112,11 +118,14 @@ export type WebviewToExtensionMessage =
   | { type: "selectSession"; sessionId: string }
   | { type: "createSession" }
   | { type: "selectModel"; modelId: string }
+  | { type: "selectAgent"; agentId: string }
   | { type: "setMode"; mode: AgentMode }
   | { type: "runCommand"; command: string; argumentsText?: string }
-  | { type: "clearContext" };
+  | { type: "clearContext" }
+  | { type: "searchFiles"; query: string };
 
 export type ExtensionToWebviewMessage =
   | { type: "state"; state: AgentViewState }
   | { type: "busy"; value: boolean; message?: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "fileSuggestions"; query: string; suggestions: FileSuggestion[] };

@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import "./styles.css";
 import {
-  AgentMode,
   AgentViewState,
   ChatMessageView,
   ContextAttachment,
   ExtensionMessage,
+  FileSuggestion,
   ModelView,
+  OpenCodeAgent,
   OpenCodeCommand,
   SessionView
 } from "./types";
@@ -32,6 +35,12 @@ function App(): React.JSX.Element {
   const [error, setError] = useState<string | undefined>();
   const [input, setInput] = useState("");
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  const [fileSuggestions, setFileSuggestions] = useState<FileSuggestion[]>([]);
+  const [sessionListCollapsed, setSessionListCollapsed] = useState(() => {
+    const savedState = vscode?.getState() as { sessionListCollapsed?: boolean } | undefined;
+    return savedState?.sessionListCollapsed ?? false;
+  });
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -44,6 +53,8 @@ function App(): React.JSX.Element {
         setBusy(message.value ? message.message ?? "Working..." : undefined);
       } else if (message.type === "error") {
         setError(message.message);
+      } else if (message.type === "fileSuggestions") {
+        setFileSuggestions(message.suggestions);
       }
     };
     window.addEventListener("message", listener);
@@ -52,18 +63,33 @@ function App(): React.JSX.Element {
   }, []);
 
   const slashQuery = parseSlashQuery(input);
+  const fileMentionQuery = parseFileMentionQuery(input);
   const filteredCommands = useMemo(() => {
     if (slashQuery === undefined) {
       return [];
     }
     return state.commands
       .filter((command) => command.id.toLowerCase().includes(slashQuery.toLowerCase()))
-      .slice(0, 6);
+      .sort((left, right) => left.id.localeCompare(right.id));
   }, [slashQuery, state.commands]);
 
   useEffect(() => {
     setSelectedCommandIndex(0);
   }, [slashQuery]);
+
+  useEffect(() => {
+    setSelectedFileIndex(0);
+    if (fileMentionQuery === undefined) {
+      setFileSuggestions([]);
+      return;
+    }
+    vscode?.postMessage({ type: "searchFiles", query: fileMentionQuery });
+  }, [fileMentionQuery]);
+
+  const setSessionsCollapsed = (value: boolean) => {
+    setSessionListCollapsed(value);
+    vscode?.setState({ sessionListCollapsed: value });
+  };
 
   const send = () => {
     const text = input.trim();
@@ -88,8 +114,18 @@ function App(): React.JSX.Element {
   return (
     <main className="shell">
       <Header state={state} busy={busy} error={error} />
-      <SessionList sessions={state.sessions} activeSessionId={state.activeSessionId} />
-      <Toolbar mode={state.mode} models={state.models} selectedModelId={state.selectedModelId} />
+      <SessionList
+        sessions={state.sessions}
+        activeSessionId={state.activeSessionId}
+        collapsed={sessionListCollapsed}
+        onCollapsedChange={setSessionsCollapsed}
+      />
+      <Toolbar
+        agents={state.agents}
+        selectedAgentId={state.selectedAgentId}
+        models={state.models}
+        selectedModelId={state.selectedModelId}
+      />
       <ContextBar context={state.context} />
       <MessageList messages={state.messages} />
       <Composer
@@ -97,11 +133,18 @@ function App(): React.JSX.Element {
         busy={busy}
         inputRef={inputRef}
         commands={filteredCommands}
+        fileSuggestions={fileSuggestions}
         selectedCommandIndex={selectedCommandIndex}
+        selectedFileIndex={selectedFileIndex}
         onSelectedCommandIndexChange={setSelectedCommandIndex}
+        onSelectedFileIndexChange={setSelectedFileIndex}
         onInputChange={setInput}
         onSend={send}
         onChooseCommand={chooseCommand}
+        onChooseFile={(file) => {
+          setInput(replaceActiveFileMention(input, file.path));
+          window.setTimeout(() => inputRef.current?.focus(), 0);
+        }}
       />
     </main>
   );
@@ -134,15 +177,26 @@ function Header({
 
 function SessionList({
   sessions,
-  activeSessionId
+  activeSessionId,
+  collapsed,
+  onCollapsedChange
 }: {
   sessions: readonly SessionView[];
   activeSessionId?: string;
+  collapsed: boolean;
+  onCollapsedChange(value: boolean): void;
 }): React.JSX.Element {
   return (
-    <section className="sessions">
+    <section className={`sessions ${collapsed ? "collapsed" : ""}`}>
       <div className="sectionHeader">
-        <span>Sessions</span>
+        <button
+          className="sectionToggle"
+          onClick={() => onCollapsedChange(!collapsed)}
+          title={collapsed ? "Show sessions" : "Hide sessions"}
+        >
+          <span>{collapsed ? ">" : "v"}</span>
+          Sessions
+        </button>
         <button
           className="iconButton"
           title="New session"
@@ -151,7 +205,7 @@ function SessionList({
           +
         </button>
       </div>
-      <div className="sessionList">
+      {!collapsed ? <div className="sessionList">
         {sessions.length ? (
           sessions.map((session) => (
             <button
@@ -169,38 +223,45 @@ function SessionList({
         ) : (
           <p className="empty">No OpenCode sessions yet.</p>
         )}
-      </div>
+      </div> : null}
     </section>
   );
 }
 
 function Toolbar({
-  mode,
+  agents,
+  selectedAgentId,
   models,
   selectedModelId
 }: {
-  mode: AgentMode;
+  agents: readonly OpenCodeAgent[];
+  selectedAgentId?: string;
   models: readonly ModelView[];
   selectedModelId?: string;
 }): React.JSX.Element {
+  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   return (
     <section className="toolbar">
-      <div className="segments" role="tablist" aria-label="Mode">
-        <button
-          aria-pressed={mode === "chat"}
-          className={mode === "chat" ? "active" : ""}
-          onClick={() => vscode?.postMessage({ type: "setMode", mode: "chat" })}
+      <label className="field">
+        <span>Agent</span>
+        <select
+          aria-label="Agent"
+          value={selectedAgentId ?? "__opencode_default__"}
+          onChange={(event) =>
+            vscode?.postMessage({ type: "selectAgent", agentId: event.target.value })
+          }
         >
-          Chat
-        </button>
-        <button
-          aria-pressed={mode === "agent"}
-          className={mode === "agent" ? "active" : ""}
-          onClick={() => vscode?.postMessage({ type: "setMode", mode: "agent" })}
-        >
-          Agent
-        </button>
-      </div>
+          <option value="__opencode_default__">OpenCode default</option>
+          {agents.map((agent) => (
+            <option key={agent.id} value={agent.id}>
+              {agent.name}
+            </option>
+          ))}
+        </select>
+        <small>{selectedAgent?.description ?? "Uses the selected OpenCode agent behavior."}</small>
+      </label>
+      <label className="field">
+        <span>Model</span>
       <select
         aria-label="Model"
         value={selectedModelId ?? ""}
@@ -214,6 +275,7 @@ function Toolbar({
           </option>
         ))}
       </select>
+      </label>
     </section>
   );
 }
@@ -262,7 +324,13 @@ function MessageList({
         messages.map((message) => (
           <article key={message.id} className={`message ${message.role}`}>
             <div className="role">{message.role}</div>
-            <pre>{message.text}</pre>
+            {message.role === "assistant" ? (
+              <div className="markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+              </div>
+            ) : (
+              <pre>{message.text}</pre>
+            )}
           </article>
         ))
       ) : (
@@ -277,23 +345,32 @@ function Composer({
   busy,
   inputRef,
   commands,
+  fileSuggestions,
   selectedCommandIndex,
+  selectedFileIndex,
   onSelectedCommandIndexChange,
+  onSelectedFileIndexChange,
   onInputChange,
   onSend,
-  onChooseCommand
+  onChooseCommand,
+  onChooseFile
 }: {
   input: string;
   busy: string | undefined;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   commands: readonly OpenCodeCommand[];
+  fileSuggestions: readonly FileSuggestion[];
   selectedCommandIndex: number;
+  selectedFileIndex: number;
   onSelectedCommandIndexChange(index: number): void;
+  onSelectedFileIndexChange(index: number): void;
   onInputChange(value: string): void;
   onSend(): void;
   onChooseCommand(command: OpenCodeCommand, sendImmediately: boolean): void;
+  onChooseFile(file: FileSuggestion): void;
 }): React.JSX.Element {
   const commandMenuOpen = parseSlashQuery(input) !== undefined && commands.length > 0;
+  const fileMenuOpen = !commandMenuOpen && parseFileMentionQuery(input) !== undefined && fileSuggestions.length > 0;
 
   return (
     <section className="composer">
@@ -307,6 +384,20 @@ function Composer({
             >
               <span>/{command.id}</span>
               <small>{command.description ?? command.agent ?? ""}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {fileMenuOpen ? (
+        <div className="commandMenu fileMenu">
+          {fileSuggestions.map((file, index) => (
+            <button
+              key={file.path}
+              className={index === selectedFileIndex ? "active" : ""}
+              onClick={() => onChooseFile(file)}
+            >
+              <span>@{file.label}</span>
+              <small>{file.path}</small>
             </button>
           ))}
         </div>
@@ -335,6 +426,23 @@ function Composer({
             onChooseCommand(commands[selectedCommandIndex], false);
             return;
           }
+          if (fileMenuOpen && event.key === "ArrowDown") {
+            event.preventDefault();
+            onSelectedFileIndexChange((selectedFileIndex + 1) % fileSuggestions.length);
+            return;
+          }
+          if (fileMenuOpen && event.key === "ArrowUp") {
+            event.preventDefault();
+            onSelectedFileIndexChange(
+              (selectedFileIndex + fileSuggestions.length - 1) % fileSuggestions.length
+            );
+            return;
+          }
+          if (fileMenuOpen && (event.key === "Tab" || event.key === "Enter")) {
+            event.preventDefault();
+            onChooseFile(fileSuggestions[selectedFileIndex]);
+            return;
+          }
           if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             onSend();
           }
@@ -356,6 +464,15 @@ function parseSlashQuery(value: string): string | undefined {
     return undefined;
   }
   return trimmed.slice(1).split(/\s/, 1)[0] ?? "";
+}
+
+function parseFileMentionQuery(value: string): string | undefined {
+  const match = value.match(/(^|\s)@([^\s]*)$/);
+  return match ? match[2] : undefined;
+}
+
+function replaceActiveFileMention(value: string, path: string): string {
+  return value.replace(/(^|\s)@([^\s]*)$/, `$1@${path} `);
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(<App />);
