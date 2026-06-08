@@ -190,6 +190,9 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
         case "runCommand":
           await this.runCommand(message.command, message.argumentsText ?? "");
           return;
+        case "addContext":
+          await this.addContextFromCommand();
+          return;
         case "clearContext":
           await this.clearContext();
           return;
@@ -377,12 +380,7 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
     }
 
     const normalizedQuery = query.replace(/^@/, "").trim();
-    if (!normalizedQuery) {
-      this.post({ type: "fileSuggestions", query, suggestions: [] });
-      return;
-    }
-
-    const pattern = `**/*${escapeGlob(normalizedQuery)}*`;
+    const pattern = normalizedQuery ? `**/*${escapeGlob(normalizedQuery)}*` : "**/*";
     const uris = await vscode.workspace.findFiles(
       pattern,
       "{**/node_modules/**,**/.git/**,**/out/**,**/dist/**,**/media/webview/**}",

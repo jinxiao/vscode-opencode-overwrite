@@ -120,18 +120,17 @@ function App(): React.JSX.Element {
         collapsed={sessionListCollapsed}
         onCollapsedChange={setSessionsCollapsed}
       />
-      <Toolbar
-        agents={state.agents}
-        selectedAgentId={state.selectedAgentId}
-        models={state.models}
-        selectedModelId={state.selectedModelId}
-      />
-      <ContextBar context={state.context} />
       <MessageList messages={state.messages} />
+      <ContextBar context={state.context} />
       <Composer
         input={input}
         busy={busy}
         inputRef={inputRef}
+        agents={state.agents}
+        selectedAgentId={state.selectedAgentId}
+        models={state.models}
+        selectedModelId={state.selectedModelId}
+        contextCount={state.context.length}
         commands={filteredCommands}
         fileSuggestions={fileSuggestions}
         selectedCommandIndex={selectedCommandIndex}
@@ -228,58 +227,6 @@ function SessionList({
   );
 }
 
-function Toolbar({
-  agents,
-  selectedAgentId,
-  models,
-  selectedModelId
-}: {
-  agents: readonly OpenCodeAgent[];
-  selectedAgentId?: string;
-  models: readonly ModelView[];
-  selectedModelId?: string;
-}): React.JSX.Element {
-  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
-  return (
-    <section className="toolbar">
-      <label className="field">
-        <span>Agent</span>
-        <select
-          aria-label="Agent"
-          value={selectedAgentId ?? "__opencode_default__"}
-          onChange={(event) =>
-            vscode?.postMessage({ type: "selectAgent", agentId: event.target.value })
-          }
-        >
-          <option value="__opencode_default__">OpenCode default</option>
-          {agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
-        <small>{selectedAgent?.description ?? "Uses the selected OpenCode agent behavior."}</small>
-      </label>
-      <label className="field">
-        <span>Model</span>
-      <select
-        aria-label="Model"
-        value={selectedModelId ?? ""}
-        onChange={(event) =>
-          vscode?.postMessage({ type: "selectModel", modelId: event.target.value })
-        }
-      >
-        {models.map((model) => (
-          <option key={model.id} value={model.id}>
-            {model.name}
-          </option>
-        ))}
-      </select>
-      </label>
-    </section>
-  );
-}
-
 function ContextBar({
   context
 }: {
@@ -344,6 +291,11 @@ function Composer({
   input,
   busy,
   inputRef,
+  agents,
+  selectedAgentId,
+  models,
+  selectedModelId,
+  contextCount,
   commands,
   fileSuggestions,
   selectedCommandIndex,
@@ -358,6 +310,11 @@ function Composer({
   input: string;
   busy: string | undefined;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  agents: readonly OpenCodeAgent[];
+  selectedAgentId?: string;
+  models: readonly ModelView[];
+  selectedModelId?: string;
+  contextCount: number;
   commands: readonly OpenCodeCommand[];
   fileSuggestions: readonly FileSuggestion[];
   selectedCommandIndex: number;
@@ -371,6 +328,17 @@ function Composer({
 }): React.JSX.Element {
   const commandMenuOpen = parseSlashQuery(input) !== undefined && commands.length > 0;
   const fileMenuOpen = !commandMenuOpen && parseFileMentionQuery(input) !== undefined && fileSuggestions.length > 0;
+  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
+  const commandHint = commandMenuOpen
+    ? "Select command"
+    : fileMenuOpen
+      ? "Select file"
+      : busy ?? "Ctrl+Enter to send";
+
+  const insertToken = (token: string) => {
+    onInputChange(appendComposerToken(input, token));
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
 
   return (
     <section className="composer">
@@ -402,57 +370,113 @@ function Composer({
           ))}
         </div>
       ) : null}
-      <textarea
-        ref={inputRef}
-        value={input}
-        rows={4}
-        placeholder="Ask OpenCode, or type /help"
-        onChange={(event) => onInputChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (commandMenuOpen && event.key === "ArrowDown") {
-            event.preventDefault();
-            onSelectedCommandIndexChange((selectedCommandIndex + 1) % commands.length);
-            return;
-          }
-          if (commandMenuOpen && event.key === "ArrowUp") {
-            event.preventDefault();
-            onSelectedCommandIndexChange(
-              (selectedCommandIndex + commands.length - 1) % commands.length
-            );
-            return;
-          }
-          if (commandMenuOpen && event.key === "Tab") {
-            event.preventDefault();
-            onChooseCommand(commands[selectedCommandIndex], false);
-            return;
-          }
-          if (fileMenuOpen && event.key === "ArrowDown") {
-            event.preventDefault();
-            onSelectedFileIndexChange((selectedFileIndex + 1) % fileSuggestions.length);
-            return;
-          }
-          if (fileMenuOpen && event.key === "ArrowUp") {
-            event.preventDefault();
-            onSelectedFileIndexChange(
-              (selectedFileIndex + fileSuggestions.length - 1) % fileSuggestions.length
-            );
-            return;
-          }
-          if (fileMenuOpen && (event.key === "Tab" || event.key === "Enter")) {
-            event.preventDefault();
-            onChooseFile(fileSuggestions[selectedFileIndex]);
-            return;
-          }
-          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-            onSend();
-          }
-        }}
-      />
-      <div className="composerFooter">
-        <span>Ctrl+Enter to send</span>
-        <button disabled={!input.trim() || Boolean(busy)} onClick={onSend}>
-          Send
-        </button>
+      <div className="composerSurface">
+        <textarea
+          ref={inputRef}
+          value={input}
+          rows={4}
+          placeholder="Ask OpenCode, type / for commands, or @ for files"
+          onChange={(event) => onInputChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (commandMenuOpen && event.key === "ArrowDown") {
+              event.preventDefault();
+              onSelectedCommandIndexChange((selectedCommandIndex + 1) % commands.length);
+              return;
+            }
+            if (commandMenuOpen && event.key === "ArrowUp") {
+              event.preventDefault();
+              onSelectedCommandIndexChange(
+                (selectedCommandIndex + commands.length - 1) % commands.length
+              );
+              return;
+            }
+            if (commandMenuOpen && (event.key === "Tab" || event.key === "Enter")) {
+              event.preventDefault();
+              onChooseCommand(commands[selectedCommandIndex], false);
+              return;
+            }
+            if (fileMenuOpen && event.key === "ArrowDown") {
+              event.preventDefault();
+              onSelectedFileIndexChange((selectedFileIndex + 1) % fileSuggestions.length);
+              return;
+            }
+            if (fileMenuOpen && event.key === "ArrowUp") {
+              event.preventDefault();
+              onSelectedFileIndexChange(
+                (selectedFileIndex + fileSuggestions.length - 1) % fileSuggestions.length
+              );
+              return;
+            }
+            if (fileMenuOpen && (event.key === "Tab" || event.key === "Enter")) {
+              event.preventDefault();
+              onChooseFile(fileSuggestions[selectedFileIndex]);
+              return;
+            }
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+              onSend();
+            }
+          }}
+        />
+        <div className="composerMeta">
+          <label className="composerSelect" title={selectedAgent?.description}>
+            <span>Agent</span>
+            <select
+              aria-label="Agent"
+              value={selectedAgentId ?? "__opencode_default__"}
+              onChange={(event) =>
+                vscode?.postMessage({ type: "selectAgent", agentId: event.target.value })
+              }
+            >
+              <option value="__opencode_default__">Default</option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="composerSelect">
+            <span>Model</span>
+            <select
+              aria-label="Model"
+              value={selectedModelId ?? ""}
+              onChange={(event) =>
+                vscode?.postMessage({ type: "selectModel", modelId: event.target.value })
+              }
+            >
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="composerFooter">
+          <div className="composerTools">
+            <button type="button" className="toolButton" title="Open slash commands" onClick={() => insertToken("/")}>
+              /
+            </button>
+            <button type="button" className="toolButton" title="Mention a workspace file" onClick={() => insertToken("@")}>
+              @
+            </button>
+            <button
+              type="button"
+              className="toolButton"
+              title="Add active editor selection or file to context"
+              onClick={() => vscode?.postMessage({ type: "addContext" })}
+            >
+              Attach
+            </button>
+            <span className="contextCount">{contextCount} context</span>
+          </div>
+          <div className="sendGroup">
+            <span>{commandHint}</span>
+            <button className="sendButton" disabled={!input.trim() || Boolean(busy)} onClick={onSend}>
+              Send
+            </button>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -473,6 +497,13 @@ function parseFileMentionQuery(value: string): string | undefined {
 
 function replaceActiveFileMention(value: string, path: string): string {
   return value.replace(/(^|\s)@([^\s]*)$/, `$1@${path} `);
+}
+
+function appendComposerToken(value: string, token: string): string {
+  if (!value.trim()) {
+    return token;
+  }
+  return /\s$/.test(value) ? `${value}${token}` : `${value} ${token}`;
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(<App />);

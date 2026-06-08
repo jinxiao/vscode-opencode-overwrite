@@ -2,7 +2,7 @@
   "name": "opencode-agent",
   "displayName": "OpenCode Agent",
   "description": "Standalone OpenCode agent sidebar for VS Code.",
-  "version": "0.2.1-pre.3",
+  "version": "0.2.1-pre.4",
   "publisher": "local",
   "license": "MIT",
   "repository": {

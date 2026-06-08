@@ -19,13 +19,12 @@
 
 - Add React + Vite build.
 - Implement the sidebar UI:
-  - session selector
-  - Chat/Agent segmented control
-  - model selector
+  - collapsible session list
   - message timeline
   - context chips
-  - slash command selector
-  - input composer
+  - markdown rendering
+  - input composer with agent selector, model selector, slash commands, and
+    `@filename` suggestions
 
 ## Phase 4: VS Code Integration
 

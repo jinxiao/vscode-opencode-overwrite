@@ -121,6 +121,7 @@ export type WebviewToExtensionMessage =
   | { type: "selectAgent"; agentId: string }
   | { type: "setMode"; mode: AgentMode }
   | { type: "runCommand"; command: string; argumentsText?: string }
+  | { type: "addContext" }
   | { type: "clearContext" }
   | { type: "searchFiles"; query: string };
 

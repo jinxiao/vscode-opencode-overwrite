@@ -10,11 +10,13 @@ chat, agent work, file context, models, and slash commands.
 ## User Experience
 
 - OpenCode appears as a dedicated Activity Bar entry.
-- Opening the view shows the current workspace session, message history, input
-  composer, mode switch, model selector, context attachments, and command entry.
+- Opening the view shows the current workspace session, message history, context
+  attachments, and a bottom composer containing input, agent selection, model
+  selection, slash commands, file mentions, and send controls.
 - Users can chat normally without `@opencode` because the sidebar is fully owned
   by this extension.
-- Users can switch between Chat and Agent modes.
+- Users can select an OpenCode agent from the composer. There is no separate
+  Chat/Agent mode toggle in the sidebar.
 - Users can select an existing OpenCode session or create a new one.
 - If the user does not switch sessions, all requests continue in the same
   session context.
@@ -47,10 +49,10 @@ chat, agent work, file context, models, and slash commands.
   - Read messages with `GET /session/{id}/message`.
   - Send normal messages with `POST /session/{id}/message`.
   - Persist the active session id in `workspaceState`.
-- Modes:
-  - Chat mode prefers the OpenCode `plan` agent when available.
-  - Agent mode prefers the OpenCode `build` agent when available.
-  - If preferred agents are unavailable, omit the agent field and use OpenCode's
+- Agents:
+  - Discover agents from OpenCode when available.
+  - Expose the active agent in the composer.
+  - If no explicit agent is selected, omit the agent field and use OpenCode's
     default behavior.
 - Models:
   - Discover models from `/config/providers` and `/provider`.
@@ -61,10 +63,13 @@ chat, agent work, file context, models, and slash commands.
   - Support editor selection, whole active file, and Explorer file selection.
   - Limit each file attachment to 200 KB and each session to 20 attachments.
   - Include context as a prefixed text block before each user prompt.
+  - Support inline `@filename` mentions in the composer and resolve them to
+    workspace file context for the sent prompt.
 - Slash commands:
   - Discover commands from `GET /command`.
   - Execute slash commands with `POST /session/{id}/command`.
-  - Treat composer input starting with `/` as a slash command.
+  - Treat composer input starting with `/` as a slash command and show the
+    dynamic command menu inside the composer.
 
 ## Success Criteria
 
