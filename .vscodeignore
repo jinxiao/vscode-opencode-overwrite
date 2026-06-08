@@ -1,5 +1,6 @@
 .vscode/**
 .github/**
+.npm-cache/**
 src/**
 node_modules/**
 .gitignore
