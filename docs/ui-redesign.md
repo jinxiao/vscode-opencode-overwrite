@@ -25,7 +25,8 @@ sidebar without `@opencode` or VS Code's native chat model picker.
 - Agent and Model selectors live inside the composer footer. There is no
   separate top configuration toolbar.
 - Plain text sends directly to OpenCode using the active session.
-- Typing `/` opens an inline command menu populated from OpenCode `/command`.
+- Typing `/` opens an inline command menu populated from OpenCode
+  `GET /api/command` for the active workspace, grouped by command source.
 - Typing `@` opens an inline workspace file suggestion menu.
 - `Ctrl+Enter` sends the current prompt.
 - When a request is running, sending is disabled and the composer shows the

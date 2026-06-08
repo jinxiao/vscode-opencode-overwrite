@@ -10,7 +10,6 @@ import {
   ExtensionMessage,
   FileSuggestion,
   ModelView,
-  OpenCodeAgent,
   OpenCodeCommand,
   SessionView
 } from "./types";
@@ -69,8 +68,11 @@ function App(): React.JSX.Element {
       return [];
     }
     return state.commands
-      .filter((command) => command.id.toLowerCase().includes(slashQuery.toLowerCase()))
-      .sort((left, right) => left.id.localeCompare(right.id));
+      .filter((command) => matchesCommand(command, slashQuery))
+      .sort((left, right) => {
+        const sourceSort = sourceLabel(left.source).localeCompare(sourceLabel(right.source));
+        return sourceSort || left.id.localeCompare(right.id);
+      });
   }, [slashQuery, state.commands]);
 
   useEffect(() => {
@@ -126,8 +128,6 @@ function App(): React.JSX.Element {
         input={input}
         busy={busy}
         inputRef={inputRef}
-        agents={state.agents}
-        selectedAgentId={state.selectedAgentId}
         models={state.models}
         selectedModelId={state.selectedModelId}
         contextCount={state.context.length}
@@ -291,8 +291,6 @@ function Composer({
   input,
   busy,
   inputRef,
-  agents,
-  selectedAgentId,
   models,
   selectedModelId,
   contextCount,
@@ -310,8 +308,6 @@ function Composer({
   input: string;
   busy: string | undefined;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
-  agents: readonly OpenCodeAgent[];
-  selectedAgentId?: string;
   models: readonly ModelView[];
   selectedModelId?: string;
   contextCount: number;
@@ -328,12 +324,7 @@ function Composer({
 }): React.JSX.Element {
   const commandMenuOpen = parseSlashQuery(input) !== undefined && commands.length > 0;
   const fileMenuOpen = !commandMenuOpen && parseFileMentionQuery(input) !== undefined && fileSuggestions.length > 0;
-  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
-  const commandHint = commandMenuOpen
-    ? "Select command"
-    : fileMenuOpen
-      ? "Select file"
-      : busy ?? "Ctrl+Enter to send";
+  const commandGroups = groupCommands(commands);
 
   const insertToken = (token: string) => {
     onInputChange(appendComposerToken(input, token));
@@ -344,15 +335,28 @@ function Composer({
     <section className="composer">
       {commandMenuOpen ? (
         <div className="commandMenu">
-          {commands.map((command, index) => (
-            <button
-              key={command.id}
-              className={index === selectedCommandIndex ? "active" : ""}
-              onClick={() => onChooseCommand(command, false)}
-            >
-              <span>/{command.id}</span>
-              <small>{command.description ?? command.agent ?? ""}</small>
-            </button>
+          {commandGroups.map((group) => (
+            <div className="commandGroup" key={group.label}>
+              <div className="commandGroupLabel">{group.label}</div>
+              {group.commands.map(({ command, index }) => (
+                <button
+                  key={command.id}
+                  className={index === selectedCommandIndex ? "active" : ""}
+                  onClick={() => onChooseCommand(command, false)}
+                >
+                  <span>/{command.id}</span>
+                  <small>{command.description ?? ""}</small>
+                  <span className="commandMeta">
+                    {command.hints.map((hint) => (
+                      <b key={hint}>{hint}</b>
+                    ))}
+                    {command.agent ? <b>{command.agent}</b> : null}
+                    {command.model ? <b>{command.model}</b> : null}
+                    {command.subtask ? <b>subtask</b> : null}
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       ) : null}
@@ -417,41 +421,6 @@ function Composer({
             }
           }}
         />
-        <div className="composerMeta">
-          <label className="composerSelect" title={selectedAgent?.description}>
-            <span>Agent</span>
-            <select
-              aria-label="Agent"
-              value={selectedAgentId ?? "__opencode_default__"}
-              onChange={(event) =>
-                vscode?.postMessage({ type: "selectAgent", agentId: event.target.value })
-              }
-            >
-              <option value="__opencode_default__">Default</option>
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="composerSelect">
-            <span>Model</span>
-            <select
-              aria-label="Model"
-              value={selectedModelId ?? ""}
-              onChange={(event) =>
-                vscode?.postMessage({ type: "selectModel", modelId: event.target.value })
-              }
-            >
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
         <div className="composerFooter">
           <div className="composerTools">
             <button type="button" className="toolButton" title="Open slash commands" onClick={() => insertToken("/")}>
@@ -471,7 +440,23 @@ function Composer({
             <span className="contextCount">{contextCount} context</span>
           </div>
           <div className="sendGroup">
-            <span>{commandHint}</span>
+            {busy ? <span>{busy}</span> : null}
+            <label className="footerModelSelect">
+              <span>Model</span>
+              <select
+                aria-label="Model"
+                value={selectedModelId ?? ""}
+                onChange={(event) =>
+                  vscode?.postMessage({ type: "selectModel", modelId: event.target.value })
+                }
+              >
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button className="sendButton" disabled={!input.trim() || Boolean(busy)} onClick={onSend}>
               Send
             </button>
@@ -504,6 +489,46 @@ function appendComposerToken(value: string, token: string): string {
     return token;
   }
   return /\s$/.test(value) ? `${value}${token}` : `${value} ${token}`;
+}
+
+function matchesCommand(command: OpenCodeCommand, query: string): boolean {
+  const normalizedQuery = query.toLowerCase();
+  return [
+    command.id,
+    command.name,
+    command.description,
+    command.source,
+    command.agent,
+    command.model,
+    ...command.hints
+  ]
+    .filter(Boolean)
+    .some((value) => value?.toLowerCase().includes(normalizedQuery));
+}
+
+function groupCommands(commands: readonly OpenCodeCommand[]): {
+  label: string;
+  commands: { command: OpenCodeCommand; index: number }[];
+}[] {
+  const grouped = new Map<string, { command: OpenCodeCommand; index: number }[]>();
+  commands.forEach((command, index) => {
+    const label = sourceLabel(command.source);
+    grouped.set(label, [...(grouped.get(label) ?? []), { command, index }]);
+  });
+  return Array.from(grouped.entries()).map(([label, groupedCommands]) => ({
+    label,
+    commands: groupedCommands
+  }));
+}
+
+function sourceLabel(source: OpenCodeCommand["source"]): string {
+  if (source === "mcp") {
+    return "MCP";
+  }
+  if (source === "skill") {
+    return "Skill";
+  }
+  return "Command";
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(<App />);

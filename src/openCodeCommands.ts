@@ -12,7 +12,11 @@ export function normalizeCommands(value: unknown): OpenCodeCommand[] {
         id: normalized,
         name: readString(item.name) ?? `/${normalized}`,
         description: readString(item.description),
-        agent: readString(item.agent)
+        agent: readString(item.agent),
+        model: readString(item.model),
+        source: readSource(item.source),
+        subtask: readBoolean(item.subtask),
+        hints: readStringArray(item.hints)
       }
     ];
   });
@@ -61,4 +65,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
+}
+
+function readSource(value: unknown): OpenCodeCommand["source"] {
+  return value === "command" || value === "mcp" || value === "skill" ? value : undefined;
 }

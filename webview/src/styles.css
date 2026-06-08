@@ -437,28 +437,6 @@ pre {
   border-radius: 7px;
 }
 
-.composerMeta {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 6px;
-  border-top: 1px solid var(--vscode-editorWidget-border);
-  padding: 6px;
-}
-
-.composerSelect {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.composerSelect span {
-  color: var(--vscode-descriptionForeground);
-  font-size: 11px;
-  font-weight: 600;
-}
-
 .composerFooter {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -491,6 +469,20 @@ pre {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.footerModelSelect {
+  display: grid;
+  grid-template-columns: auto minmax(82px, 132px);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.footerModelSelect span {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .toolButton {
@@ -527,12 +519,29 @@ pre {
   border-radius: 7px;
 }
 
+.commandGroup {
+  display: grid;
+}
+
+.commandGroupLabel {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--vscode-editorWidget-border);
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-descriptionForeground);
+  padding: 5px 8px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .commandMenu button {
   display: grid;
-  grid-template-columns: minmax(0, 112px) minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: minmax(0, 108px) minmax(0, 1fr);
+  gap: 3px 8px;
   align-items: center;
-  min-height: 31px;
+  min-height: 38px;
   padding: 5px 8px;
   text-align: left;
   border-radius: 0;
@@ -552,4 +561,24 @@ pre {
 
 .commandMenu span {
   font-weight: 600;
+}
+
+.commandMeta {
+  grid-column: 2;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.commandMeta b {
+  overflow: hidden;
+  max-width: 82px;
+  border: 1px solid var(--vscode-badge-background);
+  padding: 1px 4px;
+  color: var(--vscode-descriptionForeground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 999px;
 }

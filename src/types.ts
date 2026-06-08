@@ -48,6 +48,10 @@ export interface OpenCodeCommand {
   name: string;
   description?: string;
   agent?: string;
+  model?: string;
+  source?: "command" | "mcp" | "skill";
+  subtask?: boolean;
+  hints: string[];
 }
 
 export interface ContextAttachment {

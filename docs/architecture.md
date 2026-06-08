@@ -17,14 +17,15 @@
 - Context store:
   - Stores context attachments by workspace and session id.
 - Command runner:
-  - Lists OpenCode slash commands and executes them in the active session.
+  - Lists OpenCode slash commands from the current workspace and executes them
+    in the active session.
 
 ## Data Flow
 
 1. The webview sends `initialize`.
 2. The extension ensures the OpenCode server is ready.
 3. The extension loads sessions, active session, messages, models, agents,
-   commands, and context attachments.
+  commands, and context attachments.
 4. The extension posts a `state` message to the webview.
 5. User actions in the webview send typed requests such as `sendMessage`,
    `selectSession`, `createSession`, `selectModel`, `setMode`, `runCommand`,
@@ -54,7 +55,8 @@ Messages from extension to webview:
 ## OpenCode Request Policy
 
 - Normal messages use the active session id.
-- Slash commands use the active session id.
+- Slash commands are discovered from `GET /api/command` with the workspace
+  location query and use the active session id for execution.
 - Model id is sent only when the user has selected a concrete model.
 - Agent id is selected from the current mode only when the preferred agent
   exists.

@@ -66,10 +66,13 @@ chat, agent work, file context, models, and slash commands.
   - Support inline `@filename` mentions in the composer and resolve them to
     workspace file context for the sent prompt.
 - Slash commands:
-  - Discover commands from `GET /command`.
+  - Discover commands from `GET /api/command` for the active workspace, with
+    fallback to `GET /command` for older OpenCode servers.
   - Execute slash commands with `POST /session/{id}/command`.
   - Treat composer input starting with `/` as a slash command and show the
     dynamic command menu inside the composer.
+  - Preserve OpenCode command metadata including source, hints, agent, model,
+    and subtask flags.
 
 ## Success Criteria
 

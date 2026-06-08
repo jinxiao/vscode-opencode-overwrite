@@ -148,7 +148,26 @@ export class OpenCodeClient implements vscode.Disposable {
     }
   }
 
-  public async listCommands(token?: vscode.CancellationToken): Promise<OpenCodeCommand[]> {
+  public async listCommands(
+    workspacePath?: string,
+    token?: vscode.CancellationToken
+  ): Promise<OpenCodeCommand[]> {
+    if (workspacePath) {
+      try {
+        const response = await this.request<unknown>(
+          `/api/command?${new URLSearchParams({
+            "location[directory]": workspacePath
+          }).toString()}`,
+          { method: "GET" },
+          8000,
+          token
+        );
+        return normalizeCommands(response);
+      } catch (error) {
+        this.output.appendLine(`OpenCode /api/command failed: ${formatError(error)}`);
+      }
+    }
+
     try {
       const response = await this.request<unknown>("/command", { method: "GET" }, 8000, token);
       return normalizeCommands(response);

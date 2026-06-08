@@ -15,6 +15,7 @@ import {
   ExtensionToWebviewMessage,
   FileSuggestion,
   OpenCodeAgent,
+  OpenCodeCommand,
   OpenCodeMessage,
   OpenCodeSession,
   SessionView,
@@ -140,7 +141,7 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
   public async runSlashCommandFromCommand(): Promise<void> {
     const workspacePath = this.requireWorkspace();
     await this.ensureReady(workspacePath);
-    const commands = await this.client.listCommands();
+    const commands = await this.client.listCommands(workspacePath);
     const selected = await vscode.window.showQuickPick(
       commands.map((command) => ({
         label: command.name.startsWith("/") ? command.name : `/${command.id}`,
@@ -235,11 +236,12 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
       if (!activeSessionId) {
         throw new Error("OpenCode has no active session.");
       }
+      const commandInfo = state.commands.find((item) => item.id === command.replace(/^\//, ""));
       await this.client.runCommand(
         activeSessionId,
         command,
         argumentsText,
-        this.requestOptions(state)
+        this.commandRequestOptions(state, commandInfo)
       );
       await this.refresh();
     });
@@ -261,7 +263,7 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
     const [models, agents, commands] = await Promise.all([
       this.client.listProviderModels(),
       this.client.listAgents(),
-      this.client.listCommands()
+      this.client.listCommands(workspacePath)
     ]);
     const activeSession = await this.sessions.getActiveSession(workspacePath);
     const sessions = await this.sessions.listWorkspaceSessions(workspacePath);
@@ -335,6 +337,20 @@ export class OpenCodeAgentViewProvider implements vscode.WebviewViewProvider {
       agent:
         state.selectedAgentId && state.selectedAgentId !== DEFAULT_AGENT_ID
           ? state.selectedAgentId
+          : undefined
+    };
+  }
+
+  private commandRequestOptions(
+    state: AgentViewState,
+    command?: OpenCodeCommand
+  ): { model?: string; agent?: string } {
+    return {
+      model:
+        !command?.model &&
+        state.selectedModelId &&
+        state.selectedModelId !== FALLBACK_OPENCODE_MODEL.id
+          ? state.selectedModelId
           : undefined
     };
   }
